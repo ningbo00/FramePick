@@ -1,0 +1,10 @@
+{
+  "api_key": "",
+  "prompt": "Remove the background cleanly. Preserve the exact subject, pose, colors, proportions, edges, and transparent details. Output only the subject on a transparent background. Do not add or alter anything.",
+  "model": "gpt-image-2",
+  "api_url": "https://api.openai.com/v1/images/edits",
+  "engine": "comfyui",
+  "python_path": "",
+  "ffmpeg_path": "",
+  "birefnet_model_path": ""
+}

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FramePick · 动画序列工作台</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="overrides.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body data-theme="dark">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">F</span><span>FramePick</span><span class="brand-sub">动画序列工作台</span></div>
+      <div class="project-name"><span class="status-dot"></span> <span id="projectName">未命名项目</span> <span class="saved" id="projectStatus">· 未保存</span></div>
+      <div class="top-actions">
+        <button class="ghost-button" id="newProjectBtn" title="新建空白项目">新建项目</button>
+        <button class="ghost-button" id="openProjectLocationBtn" title="在资源管理器中打开项目所在位置">打开项目位置</button>
+        <button class="ghost-button" id="saveProjectBtn">保存</button>
+        <button class="ghost-button" id="saveProjectAsBtn">另存为</button>
+        <div class="import-export-menu-wrap"><button class="ghost-button" id="importExportBtn" type="button" aria-expanded="false" aria-haspopup="true">导入/导出⌄</button><div class="import-export-menu" id="importExportMenu" aria-hidden="true"><button id="menuImportMediaBtn" type="button">导入视频或图片</button><button id="openProjectBtn" type="button">打开项目</button><button id="importSequenceBtn" type="button">导入序列文件夹</button><button id="mediaExportBtn" type="button">导出</button></div></div>
+        <button class="icon-button settings-button" id="settingsBtn" title="设置" aria-label="设置">⚙</button>
+        <input id="projectFileInput" type="file" accept=".fpproj" hidden>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar">
+        <div class="section-label">素材库 <span id="clipCount">00</span></div>
+        <button class="import-button" id="importBtn"><span class="plus">＋</span><span>导入视频或图片</span><span class="shortcut">⌘O</span></button>
+        <input id="fileInput" type="file" accept="video/*,image/*" multiple hidden>
+        <div class="clip-list" id="clipList"><div class="clip-empty">将视频或图片拖到这里<br><span>支持同时拖入多个文件</span></div></div>
+        <div class="sidebar-footer"><span class="storage-icon">◈</span><span>本地工作区</span><span class="storage-size">1.2 GB</span></div>
+      </aside>
+
+      <section class="main-canvas">
+        <div class="canvas-toolbar">
+          <div class="breadcrumbs"><span>素材库</span><b>/</b><strong id="currentClipName">未选择素材</strong></div>
+          <div class="toolbar-actions"><div class="display-size-control"><label for="previewSize">画面</label><button class="display-size-step" id="previewSizeMinus" type="button" title="缩小画布视图">−</button><input id="previewSize" type="range" min="10" max="400" value="55" title="调整画布视图缩放，不改变实际像素"><output id="previewSizeValue">55%</output><button class="display-size-step" id="previewSizePlus" type="button" title="放大画布视图">＋</button></div><div class="canvas-size-controls canvas-toolbar-size" title="设置序列画布分辨率"><label>画布</label><select id="canvasPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="canvasWidth" type="number" min="1" max="8192" value="1920" aria-label="画布宽度"><span>×</span><input id="canvasHeight" type="number" min="1" max="8192" value="1080" aria-label="画布高度"></div><span class="transform-mode-readout" id="transformModeReadout">W 位移</span></div>
+        </div>
+
+        <div class="capture-stage">
+          <div class="stage-header"><div><span class="eyebrow">取帧工作区</span><h1>从视频里，挑出你的关键瞬间</h1></div><div class="frame-readout"><span id="currentFrame">0048</span><small>/ 0288</small></div></div>
+          <div class="canvas-view-scroll" id="canvasViewScroll">
+          <div class="video-panel">
+            <video id="video" class="video-element" preload="metadata" playsinline></video>
+            <img id="sourceImage" class="image-element" alt="素材图片">
+            <img id="onionPrevOverlay" class="onion-overlay onion-prev-overlay" alt="前一帧洋葱皮">
+            <img id="onionNextOverlay" class="onion-overlay onion-next-overlay" alt="后一帧洋葱皮">
+            <canvas id="sequencePreviewOverlay" class="sequence-preview-overlay" aria-label="序列帧预览"></canvas>
+            <div class="video-placeholder" id="videoPlaceholder"><div class="placeholder-art"><span></span><span></span><span></span></div><p>拖入视频或图片，或从左侧选择素材</p><button id="placeholderImport">选择视频或图片</button></div>
+            <div class="crosshair" id="crosshair" aria-hidden="true"></div>
+            <button class="capture-fab" id="captureBtn" title="点击画面截取帧"><span>＋</span> 点击画面截取帧</button>
+          </div>
+          </div>
+          <div class="transport"><button id="rewindBtn" class="transport-button" title="上一帧">◀</button><button id="playBtn" class="play-button" title="播放/暂停">▶</button><button id="forwardBtn" class="transport-button" title="下一帧">▶</button><div class="scrub-wrap"><input id="scrubber" type="range" min="0" max="288" value="48"><div class="scrub-labels"><span>00:00</span><span id="timeLabel">00:02.00</span><span id="durationLabel">00:12.00</span></div></div><div class="transport-meta"><span class="mono" id="fpsReadout">24 FPS</span><span class="mono" id="resolutionReadout">1920 × 1080</span></div></div>
+          <p class="hint"><span>⌘</span> 点击画面任意位置即可截取&nbsp;&nbsp; <span>←</span><span>→</span> 逐帧浏览</p>
+        </div>
+
+        <div class="sequence-section">
+          <div class="timeline" id="timeline"></div>
+          <div class="sequence-transport"><button class="sequence-play-button" id="sequencePlayBtn" title="播放序列">▶</button><div class="sequence-scrub-wrap"><input id="sequenceScrubber" type="range" min="0" max="0" value="0" step="1"><div class="motion-keyframe-strip motion-keyframe-timeline" id="motionKeyframeStrip" aria-label="整图动画关键帧轨道"></div><div class="sequence-scrub-labels"><span id="sequenceTimeLabel">00:00.00</span><span id="sequenceDurationLabel">00:00.00</span></div></div><span class="mono sequence-fps-label" id="modalFpsLabel">12 FPS</span><button class="onion-skin-button active" id="onionSkinToggle" type="button" title="切换前后帧洋葱皮" aria-label="洋葱皮已开启" aria-pressed="true">洋葱皮</button><button class="sequence-loop-button active" id="loopToggle" type="button" title="循环播放已开启" aria-label="循环播放" aria-pressed="true">↻</button></div>
+          <div class="timeline-footer"><span class="sequence-summary" id="sequenceSummary">00 帧</span><button class="delete-button timeline-delete-button" id="deleteBtn" title="删除选中帧（Backspace）">⌫ 删除选中帧</button><div class="timeline-fps-control"><span>预览帧率</span><div class="fps-control" title="调整后应用到所有未跳过帧；单帧可在右侧设置停留时长"><button id="fpsDown" title="降低帧率并应用到有效帧">−</button><strong id="fpsValue">12</strong><span>FPS</span><button id="fpsUp" title="提高帧率并应用到有效帧">＋</button></div></div><button class="sequence-variant-button timeline-variant-button" id="sequenceVariantBtn" type="button" aria-pressed="false">当前：原始序列</button><button class="preview-button timeline-preview-button" id="previewBtn">✦ <span>编辑序列</span></button><div class="timeline-ai-controls"><span id="aiSelectionText">未选择帧</span><strong id="aiProgressText">未开始</strong><progress id="aiBatchProgress" value="0" max="1"></progress><button class="ai-inspector-start timeline-ai-button" id="aiStartBtn">✦ AI 抠图</button></div><span class="mono" id="timelineTotal">总时长 00:00.67</span></div>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <div class="inspector-heading"><div><span class="eyebrow">属性</span><h2>帧设置</h2></div><button class="close-inspector" title="关闭属性">×</button></div>
+        <div class="selected-frame-preview empty" id="selectedPreview"><img id="selectedPreviewImage" alt="当前帧"><div class="preview-grid"></div><span>FRAME <b id="selectedFrameNumber">--</b></span></div>
+        <div class="field-group"><label>帧名称</label><input id="frameName" value="未选择帧" /></div>
+        <div class="field-group"><label>停留时长 <span class="unit">毫秒</span></label><div class="number-input"><input id="delayInput" type="number" min="20" max="5000" value="83"><span>ms</span><div class="stepper"><button id="delayUp">＋</button><button id="delayDown">−</button></div></div><div class="quick-delays"><button data-delay="42">42</button><button data-delay="83" class="active">83</button><button data-delay="125">125</button><button data-delay="250">250</button></div><label class="skip-frame-setting"><input id="skipFrame" type="checkbox"> 跳过此帧 <span>播放和时长计算时暂时隐藏</span></label></div>
+        <div class="field-group transform-group"><label>画面变换 <span class="unit">支持多选同步</span></label><div class="transform-grid"><label>X <input id="transformX" type="number" step="1" value="0"><span>px</span></label><label>Y <input id="transformY" type="number" step="1" value="0"><span>px</span></label><label>缩放 <input id="transformScale" type="number" min="1" max="1000" step="1" value="100"><span>%</span></label><label>旋转 <input id="transformRotate" type="number" min="-3600" max="3600" step="1" value="0"><span>°</span></label></div><button class="reset-transform" id="resetTransformBtn" type="button">重置变换</button></div>
+        <section class="sequence-motion-section">
+          <div class="sequence-motion-heading"><div><strong>整图节点动画</strong><span>作用于整张画布，导出为独立曲线</span></div><label class="motion-enabled"><input id="motionEnabled" type="checkbox"> 启用</label></div>
+          <div class="motion-preset-row"><button id="motionBreathingPreset" type="button">呼吸循环</button><button id="motionReset" type="button">清空</button></div>
+          <div class="motion-time-row"><label>关键帧时间 <input id="motionTime" type="number" min="0" step="1" value="0"><span>ms</span></label><button id="motionUsePlayhead" type="button">使用播放头</button></div>
+          <div class="transform-grid motion-transform-grid"><label>X <input id="motionX" type="number" step="1" value="0"><span>px</span></label><label>Y <input id="motionY" type="number" step="1" value="0"><span>px</span></label><label>缩放 <input id="motionScale" type="number" min="1" max="1000" step="0.1" value="100"><span>%</span></label><label>旋转 <input id="motionRotate" type="number" step="0.1" value="0"><span>°</span></label></div>
+          <label class="motion-curve-label">到下一帧的曲线<select id="motionCurve"><option value="smooth">平滑</option><option value="linear">线性</option><option value="ease">Ease</option><option value="ease-in">Ease In</option><option value="ease-out">Ease Out</option><option value="custom">自定义 Bezier</option></select></label>
+          <div class="motion-curve-editor" id="motionCurveEditor"><svg viewBox="0 0 120 64" preserveAspectRatio="none" aria-label="缓动曲线"><path class="motion-curve-grid" d="M0 32H120M60 0V64"></path><path id="motionCurvePath" d="M0 64 C50 64 70 0 120 0"></path></svg><div class="motion-bezier-inputs"><label>X1<input id="motionBezierX1" type="number" min="0" max="1" step="0.01" value="0.42"></label><label>Y1<input id="motionBezierY1" type="number" min="0" max="1" step="0.01" value="0"></label><label>X2<input id="motionBezierX2" type="number" min="0" max="1" step="0.01" value="0.58"></label><label>Y2<input id="motionBezierY2" type="number" min="0" max="1" step="0.01" value="1"></label></div></div>
+          <div class="motion-actions"><button id="motionDeleteKeyframe" type="button">删除关键帧</button><button id="motionSaveKeyframe" type="button">添加 / 更新</button></div>
+        </section>
+        <div class="field-group"><label>标记</label><div class="tag-input"><span class="tag-dot"></span><input value="主镜头" /></div></div>
+      </aside>
+    </main>
+  </div>
+  <div class="ai-modal" id="aiModal" aria-hidden="true">
+    <div class="ai-modal-card">
+      <div class="ai-modal-header"><div><span class="eyebrow">ChatGPT Image</span><h2>批量移除背景</h2></div><button class="preview-modal-close" id="aiModalClose" title="关闭">×</button></div>
+      <p class="ai-modal-copy">在这里配置 AI 服务。选择序列帧后，请回到序列控制栏点击“AI 抠图”执行处理。</p>
+      <label class="ai-field-label" for="aiApiKey">OpenAI API Key</label>
+      <div class="api-key-wrap"><input class="ai-key-input" id="aiApiKey" type="password" placeholder="sk-…（可保存到本机配置文件）" autocomplete="off"><button class="api-key-toggle" id="apiKeyToggle" type="button" title="显示 API Key" aria-label="显示 API Key" aria-pressed="false"><span aria-hidden="true"></span></button></div>
+      <label class="ai-field-label" for="aiApiUrl">API 请求地址</label>
+      <input class="ai-key-input" id="aiApiUrl" type="url" placeholder="https://api.openai.com/v1/images/edits" autocomplete="off" value="https://api.openai.com/v1/images/edits">
+      <label class="ai-field-label" for="aiEngine">抠图引擎</label>
+      <select class="ai-key-input" id="aiEngine"><option value="comfyui">本地 BiRefNet（保留原图姿势）</option><option value="openai">OpenAI image2（重新生成图片）</option></select>
+      <label class="ai-field-label" for="aiModel">图片模型</label>
+      <input class="ai-key-input" id="aiModel" type="text" placeholder="gpt-image-2" autocomplete="off" value="gpt-image-2">
+      <label class="ai-field-label" for="aiPrompt">处理要求</label>
+      <textarea class="ai-prompt-input" id="aiPrompt">Remove the background cleanly. Preserve the exact subject, pose, colors, proportions, edges, and transparent details. Output only the subject on a transparent background. Do not add or alter anything.</textarea>
+      <label class="ai-save-setting"><input id="aiSaveConfig" type="checkbox" checked> 保存到本机配置文件 <span>framepick-config.json</span></label>
+      <div class="connection-result" id="aiSettingsStatus" role="status" aria-live="polite"><span class="connection-result-icon">●</span><span class="connection-result-text">尚未测试连接</span></div>
+      <div class="ai-modal-actions"><button class="connection-test-button" id="testConnectionBtn">测试连接</button><button class="ghost-button" id="aiCancelBtn">关闭</button><button class="ai-confirm-button" id="aiSaveBtn">保存设置</button></div>
+    </div>
+  </div>
+  <div class="settings-modal" id="settingsModal" aria-hidden="true">
+    <div class="settings-card">
+      <div class="settings-header"><div><span class="eyebrow">应用设置</span><h2>设置</h2></div><button class="preview-modal-close" id="settingsClose" title="关闭">×</button></div>
+      <div class="settings-row"><div><strong>界面配色</strong><span>选择工作区的显示主题</span></div><select id="themeSelect"><option value="dark">深色界面</option><option value="light">浅色界面</option></select></div>
+      <div class="settings-row ai-settings-entry"><div><strong>AI 大模型设置</strong><span>配置本地 BiRefNet 或 OpenAI image2 抠图</span></div><button class="connection-test-button" id="aiSettingsBtn" type="button">打开设置</button></div>
+      <div class="settings-row runtime-setting-row"><div><strong>Python runtime</strong><span id="pythonRuntimeText">未检测</span></div><button class="connection-test-button" id="selectPythonBtn" type="button">选择</button></div>
+      <div class="settings-row runtime-setting-row"><div><strong>FFmpeg</strong><span id="ffmpegRuntimeText">未检测</span></div><button class="connection-test-button" id="selectFfmpegBtn" type="button">选择</button></div>
+      <div class="settings-row runtime-setting-row"><div><strong>BiRefNet 模型</strong><span id="birefnetModelText">未检测</span></div><button class="connection-test-button" id="selectBirefnetBtn" type="button">选择</button></div>
+      <div class="settings-row runtime-diagnostic-row"><div><strong>运行时诊断</strong><span id="runtimeDiagnosticText">尚未检测</span></div><button class="connection-test-button" id="runtimeDiagnoseBtn" type="button">重新检测</button></div>
+      <div class="settings-row log-setting-row"><div><strong>调试日志</strong><span id="logLocationText">记录启动、IPC 和页面错误</span></div><div class="log-actions"><button id="openLogFolderBtn" type="button">打开日志文件夹</button><button id="clearLogBtn" type="button">清空日志</button></div></div>
+      <div class="settings-actions"><span>设置会自动保存在本机</span><button class="ai-confirm-button" id="settingsDone">完成</button></div>
+    </div>
+  </div>
+  <div class="settings-modal media-export-modal" id="mediaExportModal" aria-hidden="true">
+    <div class="settings-card media-export-card">
+      <div class="settings-header"><div><span class="eyebrow">序列导出</span><h2>导出</h2></div><button class="preview-modal-close" id="mediaExportClose" title="关闭">×</button></div>
+      <div class="settings-row"><div><strong>格式</strong><span id="mediaExportFormatHint">使用实际帧停留时长生成动画；整图曲线不烘焙</span></div><select id="mediaExportFormat"><option value="gif">GIF 动画</option><option value="mp4">MP4 视频</option><option value="sprite">PNG 序列帧格子</option><option value="png-sequence">最终 PNG 单帧序列</option></select></div>
+      <div class="plugin-export-settings" id="pluginExportSettings"></div>
+      <div class="settings-row export-resolution-row" id="exportResolutionSettings"><div><strong>导出分辨率</strong><span>默认跟随画布，可单独设置输出尺寸</span></div><div class="export-size-controls"><select id="exportPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="exportWidth" type="number" min="1" max="8192" value="1920" aria-label="导出宽度"><span>×</span><input id="exportHeight" type="number" min="1" max="8192" value="1080" aria-label="导出高度"></div></div>
+      <div class="settings-row sprite-grid-settings" id="spriteGridSettings"><div><strong>格子布局</strong><span>从左到右、从上到下，不足位置透明留空</span></div><div class="sprite-grid-inputs"><label>列<input id="spriteColumns" type="number" min="1" max="64" value="10"></label><b>×</b><label>行<input id="spriteRows" type="number" min="1" max="64" value="1"></label></div></div>
+      <div class="settings-actions"><span id="mediaExportStatus">未开始</span><button class="ai-confirm-button" id="mediaExportStart">开始导出</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="renderer/sequence-animation.js"></script>
+  <script src="renderer/state.js"></script>
+  <script src="renderer/frame-model.js"></script>
+  <script src="renderer/timeline.js"></script>
+  <script src="renderer/render-pipeline.js"></script>
+  <script src="renderer/project-io.js"></script>
+  <script src="renderer/ai.js"></script>
+  <script src="renderer/export-layout.js"></script>
+  <script src="renderer/export.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

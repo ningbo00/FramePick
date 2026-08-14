@@ -1,0 +1,23 @@
+{
+  "id": "godot4",
+  "name": "Godot 4",
+  "version": "0.4.0",
+  "entry": "index.js",
+  "exportFormats": [
+    {
+      "id": "godot",
+      "label": "Godot 4 动画包",
+      "hint": "导出最终 PNG、逐帧延迟和整图曲线；Godot 导入后生成原生 AnimationLibrary",
+      "usesResolution": false
+    }
+  ],
+  "actions": [
+    {
+      "id": "install",
+      "label": "安装 Godot 导入插件",
+      "description": "安装到包含 project.godot 的项目根目录",
+      "buttonLabel": "安装插件",
+      "requiresDirectory": true
+    }
+  ]
+}

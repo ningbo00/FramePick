@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+framepick-launcher.log
+*.log
+*.previous.log
+dist/
+node_modules/
+temp/
+exports/
+.cache/
+user-data/

@@ -1,0 +1,37 @@
+{
+  "name": "framepick",
+  "version": "0.1.0",
+  "description": "FramePick animation sequence editor",
+  "main": "electron/main.js",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\"",
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:portable": "electron-builder --win portable --config.artifactName=FramePick-Portable-${version}.${ext}"
+  },
+  "private": true,
+  "devDependencies": {
+    "electron": "43.4.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.framepick.sequence",
+    "productName": "FramePick",
+    "artifactName": "FramePick-Setup-${version}.${ext}",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "workers/**/*",
+      "renderer/**/*",
+      "plugins/**/*",
+      "app.js",
+      "index.html",
+      "styles.css",
+      "overrides.css"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
+  }
+}

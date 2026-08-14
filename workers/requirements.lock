@@ -1,0 +1,5 @@
+# Validated against the available ComfyUI Python 3.11.9 runtime on 2026-08-14.
+# The lock is intentionally explicit for the worker's direct runtime dependencies.
+Pillow==11.1.0
+rembg==2.0.62
+onnxruntime==1.20.1

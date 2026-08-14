@@ -1,0 +1,16 @@
+; Engine configuration file.
+; Used only as a clean source fixture for headless plugin validation.
+
+config_version=5
+
+[application]
+
+config/name="FramePick Importer Smoke Test"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/framepick_importer/plugin.cfg")
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
