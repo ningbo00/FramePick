@@ -15,8 +15,10 @@ test('Godot plugin installs only into a project root', () => {
     assert.equal(fs.existsSync(path.join(result.pluginDirectory, 'framepick_import_plugin.gd')), true);
     assert.equal(fs.existsSync(path.join(result.pluginDirectory, 'framepick_player_2d.gd')), true);
     assert.equal(fs.existsSync(path.join(result.pluginDirectory, 'framepick_sequence_controller.gd')), true);
+    assert.equal(fs.existsSync(path.join(result.pluginDirectory, 'framepick_animation_player.gd')), true);
     const pluginSource = fs.readFileSync(path.join(result.pluginDirectory, 'plugin.gd'), 'utf8');
     assert.match(pluginSource, /FramePickSequenceController/);
+    assert.match(pluginSource, /FramePickAnimationPlayer/);
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

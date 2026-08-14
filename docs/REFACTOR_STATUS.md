@@ -45,6 +45,8 @@
 - Godot 4 插件使用 `EditorImportPlugin` 生成 `FramePickSequence`：含时长感知 `SpriteFrames`、原始毫秒数组及 position X/Y、scale X/Y、rotation 五条 Bezier 轨道。
 - Godot 插件导入 `.fpseq` 时同步生成可见的 `项目名_animations.tres` 原生 `AnimationLibrary`；`motion` 提供五条可视 Bezier 曲线，`controller` 额外提供按 `delayMs` 定时的离散切帧轨道。
 - 原生 `controller` 动画写入 `FramePickSequenceController` 的动画通道，由 Controller 相对应用到 `FootPivot` 基础变换；标准 `AnimationPlayer` 可直接加载、查看和播放，脚底锚点不被覆盖。
+- Godot addon 新增 `FramePickAnimationPlayer` 原生节点：作为 Controller 子节点时自动继承 sequence、加载生成的 `AnimationLibrary` 并在 Godot Animation 面板直接显示 `framepick/motion` 与 `framepick/controller`。
+- 本地 Godot 工程可通过 Subversion 客户端 `global-ignores=... framepick_importer` 忽略 addon，不修改仓库 `svn:ignore` 属性，也不把本机插件带入 SVN。
 - `FramePickPlayer2D` 在运行时同时播放逐帧序列和整图节点动画，节点动画不修改 PNG 像素。
 - Godot 插件新增 `FramePickSequenceController`，可在不替换现有 `Sprite2D` 的情况下把换帧绑定到 `Sprite`、把整图曲线绑定到 `FootPivot`；位移相加、缩放相乘、旋转相加，保留脚底基准与游戏侧基础变换。
 - 启动脚本在缺少依赖或 Electron 二进制时自动执行 `npm ci` 和 Electron 安装脚本。

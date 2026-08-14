@@ -96,7 +96,9 @@ frame_target_path  = ../FootPivot/Sprite
 motion_target_path = ../FootPivot
 ```
 
-要使用 Godot 原生动画，在 `FramePickSequenceController` 下添加标准 `AnimationPlayer`，把 `root_node` 设为 `..`，在 Libraries 中以 `framepick` 名称加载生成的 `项目名_animations.tres`，并关闭 Controller 自己的 `autoplay`。播放 `framepick/controller` 会同时执行精确切帧和整图曲线；播放 `framepick/motion` 只执行整图曲线。
+要直接浏览 Godot 原生动画，在 `FramePickSequenceController` 下添加 `FramePickAnimationPlayer`，并关闭 Controller 自己的 `autoplay`。该节点会自动继承父 Controller 的 sequence、设置 `root_node=..` 并加载生成的 `项目名_animations.tres`。选中它后，Godot Animation 面板会直接显示 `framepick/controller` 和 `framepick/motion`；前者同时执行精确切帧和整图曲线，后者只执行整图曲线。
+
+Godot addon 可以只在本机使用而不进入 SVN：在本机 `%APPDATA%\Subversion\config` 的 `global-ignores` 中加入 `framepick_importer`，不要为项目目录新增 `svn:ignore` 属性。这样 `res://addons/framepick_importer` 仍可正常加载，但 SVN 递归添加和提交会跳过该目录。
 
 序列换帧只修改 `Sprite.texture`；整体位移、缩放和旋转作用于 `FootPivot`。曲线按目标初始变换相对执行，因此 Godot 中 `FootPivot.position = (0, 12)` 不会被 FramePick 的 `(0, 0)` 关键帧覆盖，`100%` 缩放也不会覆盖已有基础缩放。呼吸缩放围绕脚底原点执行，主图、星级副本、`MaxStarGlow` 和姿势替换图会一起运动，而 `Player` 的世界位置和碰撞保持不变。不要把整体曲线绑到 `Sprite.scale`，因为角色代码可能根据贴图尺寸持续重算它。
 

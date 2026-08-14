@@ -139,11 +139,14 @@ func _init() -> void:
 		return
 	controller.set("framepick_motion_x", 0.0)
 	controller.call("_apply_native_motion")
-	var native_player := AnimationPlayer.new()
+	var native_player_script = ResourceLoader.load("res://addons/framepick_importer/framepick_animation_player.gd")
+	var native_player = native_player_script.new()
 	native_player.name = "FramePickNativeAnimation"
 	controller.add_child(native_player)
-	native_player.root_node = NodePath("..")
-	native_player.add_animation_library(&"framepick", visible_library)
+	native_player.call("_refresh_library")
+	if native_player.root_node != NodePath("..") or not native_player.has_animation(&"framepick/motion") or not native_player.has_animation(&"framepick/controller"):
+		_fail("FramePickAnimationPlayer did not expose native animations for direct browsing")
+		return
 	native_player.play(&"framepick/controller")
 	var native_time := 0.0415
 	native_player.advance(native_time)

@@ -19,9 +19,16 @@ func _enter_tree() -> void:
 		preload("framepick_sequence_controller.gd"),
 		null
 	)
+	add_custom_type(
+		"FramePickAnimationPlayer",
+		"AnimationPlayer",
+		preload("framepick_animation_player.gd"),
+		null
+	)
 
 
 func _exit_tree() -> void:
+	remove_custom_type("FramePickAnimationPlayer")
 	remove_custom_type("FramePickSequenceController")
 	remove_custom_type("FramePickPlayer2D")
 	if _importer != null:

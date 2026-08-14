@@ -20,15 +20,20 @@ The generated `<name>_animations.tres` contains two native animations:
 - `motion`: five Bezier tracks for whole-image X/Y, scale X/Y, and rotation;
 - `controller`: the same five Bezier tracks plus a discrete frame-index track whose key times use the exact FramePick `delayMs` values.
 
-To inspect and play them through Godot's Animation panel with an existing character hierarchy:
+To inspect and play them directly through Godot's Animation panel with an existing character hierarchy:
 
-1. Add an `AnimationPlayer` as a child of `FramePickSequenceController`.
-2. Set the `AnimationPlayer.root_node` to `..`.
-3. Add an animation library named `framepick` and load `<name>_animations.tres`.
-4. Set `FramePickSequenceController.autoplay` to `false` so its legacy clock does not compete with `AnimationPlayer`.
-5. Select `framepick/controller` to play both frame delays and whole-image motion, or `framepick/motion` for motion only.
+1. Add a `FramePickAnimationPlayer` as a child of `FramePickSequenceController`.
+2. Set `FramePickSequenceController.autoplay` to `false` so its legacy clock does not compete with the native player.
+3. Select `FramePickAnimationPlayer`. It automatically inherits the parent's sequence, sets `root_node=..`, and exposes `framepick/motion` plus `framepick/controller` in Godot's Animation panel.
+4. Select `framepick/controller` to play both frame delays and whole-image motion, or `framepick/motion` for motion only.
+
+`FramePickAnimationPlayer.play_on_ready` optionally starts the selected `startup_animation` at runtime. Its explicit `sequence` property can override inheritance when it is not placed under the matching controller.
 
 The native tracks animate controller channels, and the controller applies them relative to the target's captured base transform. This keeps a `FootPivot` at `(0, 12)` anchored while preserving its existing scale and rotation. The generated `.tres` is owned by the `.fpseq` import and is overwritten when the package is reimported; duplicate it before making Godot-only edits that must survive a FramePick re-export.
+
+### Local-only SVN installation
+
+The addon can remain local to a Godot checkout. Add `framepick_importer` to the Subversion client's `global-ignores` in `%APPDATA%\Subversion\config` instead of adding a repository `svn:ignore` property. The addon then remains available under `res://addons/` while recursive SVN add/commit operations skip it.
 
 ### Existing Sprite2D and foot-pivot hierarchies
 
@@ -39,6 +44,7 @@ Recommended character hierarchy:
 ```text
 Player
 ├─ FramePickSequenceController
+│  └─ FramePickAnimationPlayer
 └─ FootPivot                 position = (0, 12)
    ├─ Sprite                 position = (0, -42)
    ├─ star-stack sprites
