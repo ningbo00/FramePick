@@ -21,6 +21,23 @@ npm install
 npm start
 ```
 
+### 在其他电脑上开发
+
+仓库只提交 FramePick 源码和 `package-lock.json`，不提交 `node_modules`、Electron 缓存、个人配置、视频素材或模型文件。新电脑克隆仓库后，在项目根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-windows.ps1
+npm start
+```
+
+准备脚本会检查 Node.js 版本并执行锁定版本的 `npm ci`，同时提示 Python 和 FFmpeg 是否可用。Python、FFmpeg 和 BiRefNet 模型可以在每台电脑分别安装，并在 FramePick 设置中选择路径。API Key 保存在 Windows 用户目录，不会进入 GitHub。
+
+`projects-local/`、`assets-local/`、`models/` 和 `runtime/` 是本机专用目录，已加入 `.gitignore`。需要跨电脑版本管理的大型项目素材，建议使用 Git LFS 或单独的云盘目录。
+
+### GitHub 自动构建
+
+`.github/workflows/windows.yml` 会在 GitHub Actions 中执行测试并构建 Windows 安装包。手动运行 workflow 可以验证当前 `main` 分支；推送形如 `v0.1.0` 的 tag 后，Actions 会构建并上传 `FramePick-windows` 工件，适合发布到 GitHub Releases。
+
 同一时间重复运行不会创建第二个窗口。
 
 项目文件使用 `.fpproj` 扩展名，序列目录使用 `framepick-sequence` schema v1。旧项目格式不受支持。

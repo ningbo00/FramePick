@@ -1,0 +1,39 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout FramePick
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --omit=peer --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Windows packages
+        run: npm run dist
+
+      - name: Upload Windows packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: FramePick-windows
+          path: dist/*
+          if-no-files-found: error

@@ -13,6 +13,16 @@ const videoPanel = $('.video-panel');
 const sequenceScrubber = $('#sequenceScrubber');
 const aiModal = $('#aiModal');
 const settingsModal = $('#settingsModal');
+const SOURCE_VIDEO_FPS = FramePickVideoSampling.DEFAULT_SOURCE_FPS;
+const panelMode = new URLSearchParams(window.location.search).get('panel') || '';
+let panelSyncApplying = false;
+let panelSyncTimer = null;
+const detachedPanels = new Set();
+const collapsedPanels = new Set();
+if (panelMode) {
+  document.body.dataset.panel = panelMode;
+  document.title = `FramePick · ${{ assets: '素材库', workspace: '取帧工作区', sequence: '序列帧', inspector: '属性' }[panelMode] || '面板'}`;
+}
 
 window.addEventListener('error', (event) => console.error('页面错误', event.message, event.filename, event.lineno, event.colno));
 window.addEventListener('unhandledrejection', (event) => console.error('未处理的异步错误', event.reason));
@@ -40,6 +50,7 @@ let sequenceVariant = initialState.sequenceVariant;
 let sequenceAnimation = initialState.sequenceAnimation;
 let transformMode = 'move';
 let workspaceScale = Number($('#previewSize')?.value) || 55;
+let timelineScale = Number($('#timelineSize')?.value) || 78;
 let canvasWidth = initialState.canvasWidth;
 let canvasHeight = initialState.canvasHeight;
 let exportWidth = initialState.exportWidth;
@@ -53,6 +64,166 @@ let historyApplying = false;
 let inspectorPreviewToken = 0;
 let selectedMotionKeyframeId = sequenceAnimation.keyframes[0]?.id || '';
 const exportPluginFormats = new Map();
+let autoExtracting = false;
+let autoExtractCancelled = false;
+let sourceSeekRequest = 0;
+
+function panelStateSnapshot() {
+  return {
+    clips: clips.map((clip) => ({
+      name: clip.name,
+      kind: clip.kind,
+      duration: Number(clip.duration) || 0,
+      width: Number(clip.width) || 0,
+      height: Number(clip.height) || 0,
+      thumbnail: clip.thumbnail || ''
+    })),
+    activeClip,
+    frames: frames.map((frame) => ({ ...frame, source: { ...frame.source }, variants: { ...frame.variants } })),
+    selected,
+    selectedIndices: [...selectedIndices],
+    selectionAnchor,
+    fps,
+    canvasWidth,
+    canvasHeight,
+    sequenceVariant,
+    sequenceAnimation,
+    displayMode,
+    previewPlaying,
+    previewElapsed,
+    previewMotionElapsed,
+    previewIndex,
+    projectFileName,
+    loop: Boolean($('#loopToggle')?.classList.contains('active'))
+  };
+}
+
+function schedulePanelStateSync() {
+  if (panelSyncApplying || !window.framepickDesktop?.panels?.sendState) return;
+  clearTimeout(panelSyncTimer);
+  panelSyncTimer = setTimeout(() => {
+    panelSyncTimer = null;
+    window.framepickDesktop.panels.sendState(panelStateSnapshot());
+  }, 0);
+}
+
+function applyPanelState(state) {
+  if (!state || panelSyncApplying) return;
+  panelSyncApplying = true;
+  try {
+    if (Array.isArray(state.clips)) {
+      if (panelMode) {
+        clips = state.clips.map((clip) => ({ ...clip, url: clip.url || '' }));
+      } else {
+        const existingByName = new Map(clips.map((clip) => [clip.name, clip]));
+        clips = state.clips.map((clip) => ({ ...(existingByName.get(clip.name) || {}), ...clip, url: existingByName.get(clip.name)?.url || clip.url || '' }));
+      }
+    }
+    if (Number.isInteger(state.activeClip)) activeClip = state.activeClip;
+    if (activeClip < 0 || activeClip >= clips.length) activeClip = clips.length ? Math.min(activeClip, clips.length - 1) : -1;
+    if (Array.isArray(state.frames)) frames = state.frames.map((frame) => FrameModel.create(frame));
+    selected = Number.isInteger(state.selected) && state.selected >= 0 && state.selected < frames.length ? state.selected : (frames.length ? 0 : -1);
+    selectedIndices = new Set((Array.isArray(state.selectedIndices) ? state.selectedIndices : [selected]).filter((index) => Number.isInteger(index) && index >= 0 && index < frames.length));
+    if (selected >= 0 && !selectedIndices.size) selectedIndices.add(selected);
+    selectionAnchor = Number.isInteger(state.selectionAnchor) ? state.selectionAnchor : selected;
+    fps = Math.max(1, Math.min(60, Number(state.fps) || 12));
+    sequenceVariant = state.sequenceVariant === 'ai' ? 'ai' : 'original';
+    sequenceAnimation = FramePickSequenceAnimation.create(state.sequenceAnimation);
+    selectedMotionKeyframeId = sequenceAnimation.keyframes[0]?.id || '';
+    if (state.projectFileName) projectFileName = state.projectFileName;
+    displayMode = state.displayMode === 'sequence' ? 'sequence' : 'video';
+    const incomingPreviewPlaying = Boolean(state.previewPlaying);
+    const wasPreviewPlaying = previewPlaying;
+    const incomingPreviewElapsed = Math.max(0, Number(state.previewElapsed) || 0);
+    const incomingPreviewMotionElapsed = Math.max(0, Number(state.previewMotionElapsed ?? state.previewElapsed) || 0);
+    const incomingPreviewIndex = Number.isInteger(state.previewIndex) ? state.previewIndex : -1;
+    previewElapsed = incomingPreviewElapsed;
+    previewMotionElapsed = incomingPreviewMotionElapsed;
+    previewIndex = incomingPreviewIndex;
+    if (Number(state.canvasWidth) > 0 && Number(state.canvasHeight) > 0) updateCanvasResolution(state.canvasWidth, state.canvasHeight, false);
+    $('#loopToggle')?.classList.toggle('active', state.loop !== false);
+    $('#loopToggle')?.setAttribute('aria-pressed', String(state.loop !== false));
+    $('#fpsValue').textContent = fps;
+    $('#modalFpsLabel').textContent = `${fps} FPS`;
+    $('#sequenceVariantBtn').textContent = sequenceVariant === 'ai' ? '当前：AI 抠图序列' : '当前：原始序列';
+    $('#sequenceVariantBtn').classList.toggle('is-ai', sequenceVariant === 'ai');
+    renderClips();
+    $('#currentClipName').textContent = clips[activeClip]?.name || '未选择素材';
+    renderTimeline();
+    updateInspector();
+    updateMotionEditor();
+    if (displayMode === 'sequence' && selected >= 0) renderSequenceInMainWindow();
+    else if (!panelMode) resetVideoStage();
+    previewElapsed = incomingPreviewElapsed;
+    previewMotionElapsed = incomingPreviewMotionElapsed;
+    previewIndex = incomingPreviewIndex;
+    if (displayMode === 'sequence' && activeFrameIndexes().length) {
+      renderPreviewFrame(frameIndexAtElapsed(previewElapsed), { syncSelection: false });
+      applySequenceAnimationPreview(previewElapsed);
+    }
+    if (incomingPreviewPlaying && activeFrameIndexes().length) {
+      previewPlaying = true;
+      $('#sequencePlayBtn').textContent = 'Ⅱ';
+      $('#sequencePlayBtn').classList.add('is-playing');
+      if (!wasPreviewPlaying) startSequenceMotionClock();
+    } else {
+      previewPlaying = false;
+      stopSequenceMotionClock();
+      $('#sequencePlayBtn').textContent = '▶';
+      $('#sequencePlayBtn').classList.remove('is-playing');
+      sequenceScrubber.value = String(previewElapsed);
+      $('#sequenceTimeLabel').textContent = formatTime(previewElapsed / 1000, true);
+    }
+    updateProjectIdentity(projectFileName, false);
+  } finally {
+    panelSyncApplying = false;
+  }
+}
+
+function openPanelWindow(panel) {
+  if (!window.framepickDesktop?.panels?.open) return showToast('独立面板仅支持桌面版');
+  window.framepickDesktop.panels.open(panel).then((result) => {
+    if (result?.error) showToast(`无法打开面板：${result.error}`);
+    else if (result?.ok) setPanelDetached(panel, true);
+  }).catch((error) => showToast(`无法打开面板：${error.message}`));
+}
+
+function updateWorkspacePanelLayout() {
+  document.body.dataset.detachedPanels = [...detachedPanels].join(' ');
+  document.body.dataset.collapsedPanels = [...collapsedPanels].join(' ');
+  const columns = [];
+  if (!detachedPanels.has('assets')) columns.push(collapsedPanels.has('assets') ? '40px' : '270px');
+  const mainColumnNeeded = !detachedPanels.has('workspace') || !detachedPanels.has('sequence');
+  if (mainColumnNeeded) columns.push('minmax(0, 1fr)');
+  if (!detachedPanels.has('inspector')) columns.push(collapsedPanels.has('inspector') ? '40px' : '284px');
+  document.body.style.setProperty('--workspace-grid-columns', columns.join(' ') || 'minmax(0, 1fr)');
+}
+
+function setPanelDetached(panel, detached) {
+  if (!panel || panelMode) return;
+  if (detached) {
+    detachedPanels.add(panel);
+    collapsedPanels.delete(panel);
+  } else {
+    detachedPanels.delete(panel);
+  }
+  updateWorkspacePanelLayout();
+}
+
+function setPanelCollapsed(panel, collapsed) {
+  if (!['assets', 'inspector'].includes(panel) || panelMode || detachedPanels.has(panel)) return;
+  if (collapsed) collapsedPanels.add(panel);
+  else collapsedPanels.delete(panel);
+  updateWorkspacePanelLayout();
+}
+
+function updateTimelineScale(value) {
+  timelineScale = Math.max(56, Math.min(180, Number(value) || 78));
+  document.body.style.setProperty('--timeline-frame-size', `${timelineScale}px`);
+  document.body.style.setProperty('--timeline-thumb-size', `${Math.max(36, Math.round(timelineScale * 0.67))}px`);
+  const input = $('#timelineSize');
+  if (input && Number(input.value) !== timelineScale) input.value = String(timelineScale);
+}
 
 function historyDocument() {
   return JSON.stringify({ fps, sequenceVariant, sequenceAnimation, canvasWidth, canvasHeight, loop: Boolean($('#loopToggle')?.classList.contains('active')), frames });
@@ -540,6 +711,8 @@ function selectFrame(index, event = {}) {
   renderSequenceInMainWindow();
   updateInspector();
   updateTimelineSelection();
+  syncSourceTimelineToFrame(frames[index]);
+  schedulePanelStateSync();
 }
 
 function timelineFrameElements() {
@@ -751,6 +924,7 @@ function resetVideoStage() {
   videoPanel.style.aspectRatio = '16 / 9';
   updateCanvasDisplaySize();
   $('#currentClipName').textContent = '未选择素材';
+  updateAutoExtractEstimate();
 }
 
 function removeClip(index) {
@@ -758,7 +932,7 @@ function removeClip(index) {
   if (!removed) return;
   const wasActive = activeClip === index;
   clips.splice(index, 1);
-  URL.revokeObjectURL(removed.url);
+  if (removed.url) URL.revokeObjectURL(removed.url);
   if (wasActive) {
     activeClip = -1;
     resetVideoStage();
@@ -768,15 +942,17 @@ function removeClip(index) {
     if (activeClip > index) activeClip -= 1;
     renderClips();
   }
+  schedulePanelStateSync();
   showToast(`已删除素材 ${removed.name}`);
 }
 
 function clearClips() {
-  clips.forEach((clip) => URL.revokeObjectURL(clip.url));
+  clips.forEach((clip) => { if (clip.url) URL.revokeObjectURL(clip.url); });
   clips = [];
   activeClip = -1;
   resetVideoStage();
   renderClips();
+  schedulePanelStateSync();
   showToast('素材库已清空');
 }
 
@@ -819,6 +995,7 @@ function newProject() {
     localStorage.removeItem('framepick-project-path');
     localStorage.removeItem('framepick-project-name');
   } catch { /* Local storage may be unavailable. */ }
+  schedulePanelStateSync();
   showToast('已新建空白项目');
 }
 
@@ -870,17 +1047,29 @@ async function importFiles(fileList) {
   }
   renderClips();
   if (activeClip < 0 && clips.length) loadClip(0);
+  schedulePanelStateSync();
   showToast(`已导入 ${imported} 个素材`);
 }
 
-function loadClip(index) {
+function loadClip(index, options = {}) {
   const clip = clips[index];
   if (!clip) return;
+  if (panelMode && !clip.url) {
+    activeClip = index;
+    $('#currentClipName').textContent = clip.name || '未选择素材';
+    renderClips();
+    schedulePanelStateSync();
+    return;
+  }
+  const preserveSequence = Boolean(options.preserveSequence && selected >= 0 && frames[selected]);
+  sourceSeekRequest += 1;
   activeClip = index;
   stopPreview();
-  displayMode = 'video';
-  previewOverlay.classList.remove('active');
-  setSequenceDisplay(false);
+  if (!preserveSequence) {
+    displayMode = 'video';
+    previewOverlay.classList.remove('active');
+    setSequenceDisplay(false);
+  }
   video.pause();
   video.removeAttribute('src');
   video.classList.remove('loaded');
@@ -898,11 +1087,72 @@ function loadClip(index) {
     video.classList.add('loaded');
   }
   placeholder.classList.add('hidden');
-  previewOverlay.classList.remove('active');
-  setSequenceDisplay(false);
+  if (preserveSequence) renderSequenceInMainWindow();
+  else {
+    previewOverlay.classList.remove('active');
+    setSequenceDisplay(false);
+  }
   $('#currentClipName').textContent = clip.name;
   renderClips();
-  showToast(`已载入 ${clip.name}`);
+  updateAutoExtractEstimate();
+  schedulePanelStateSync();
+  if (!options.silent) showToast(`已载入 ${clip.name}`);
+}
+
+function updateSourceTimelineReadout(clip, position) {
+  const totalFrames = Math.max(0, Math.round(Number(clip.duration) * SOURCE_VIDEO_FPS));
+  $('#scrubber').max = String(totalFrames);
+  $('#scrubber').value = String(Math.min(totalFrames, position.frameIndex));
+  $('#currentFrame').textContent = String(position.frameIndex).padStart(4, '0');
+  $('#currentFrame').nextElementSibling.textContent = `/ ${String(totalFrames).padStart(4, '0')}`;
+  $('#timeLabel').textContent = formatTime(position.timeSeconds, true);
+  $('#durationLabel').textContent = formatTime(clip.duration, true);
+}
+
+function syncSourceTimelineToFrame(frame) {
+  if (!frame || autoExtracting) return;
+  const source = FrameModel.source(frame.source);
+  if (source.type !== 'video') return;
+  const sourceName = source.fileName.toLocaleLowerCase();
+  let clipIndex = clips[activeClip]?.kind === 'video' && clips[activeClip].name.toLocaleLowerCase() === sourceName
+    ? activeClip
+    : clips.findIndex((clip) => clip.kind === 'video' && clip.name.toLocaleLowerCase() === sourceName);
+  if (clipIndex < 0) return;
+  if (clipIndex !== activeClip || !video.src) loadClip(clipIndex, { preserveSequence: true, silent: true });
+  const clip = clips[clipIndex];
+  const position = FramePickVideoSampling.sourcePosition(source, SOURCE_VIDEO_FPS);
+  const request = ++sourceSeekRequest;
+  updateSourceTimelineReadout(clip, position);
+  const seek = () => {
+    if (request !== sourceSeekRequest || activeClip !== clipIndex || clips[clipIndex] !== clip) return;
+    video.pause();
+    const duration = Number(video.duration);
+    const targetTime = Number.isFinite(duration) ? Math.min(duration, position.timeSeconds) : position.timeSeconds;
+    try { video.currentTime = Math.max(0, targetTime); }
+    catch (error) { console.warn('无法定位序列帧对应的源视频位置', error); }
+  };
+  if (video.readyState >= 1) seek();
+  else video.addEventListener('loadedmetadata', seek, { once: true });
+}
+
+function capturedFrameFromMedia({ clip, source, frameNumber, timeSeconds, sourceTimeMs, canvas }) {
+  const frameCanvas = canvas || document.createElement('canvas');
+  frameCanvas.width = source.naturalWidth || source.videoWidth;
+  frameCanvas.height = source.naturalHeight || source.videoHeight;
+  const context = frameCanvas.getContext('2d');
+  context.clearRect(0, 0, frameCanvas.width, frameCanvas.height);
+  context.drawImage(source, 0, 0, frameCanvas.width, frameCanvas.height);
+  return FrameModel.create({
+    id: crypto.randomUUID(),
+    image: frameCanvas.toDataURL('image/png'),
+    delay: Math.round(1000 / fps),
+    time: timeSeconds,
+    width: frameCanvas.width,
+    height: frameCanvas.height,
+    transform: { x: 0, y: 0, scale: 100, rotate: 0 },
+    source: { type: clip.kind, fileName: clip.name || 'source', sourceTimeMs, sourceFrameIndex: frameNumber },
+    name: `${(clip.name || 'video').replace(/\.[^.]+$/, '')}_${String(frameNumber).padStart(4, '0')}`
+  });
 }
 
 function capture() {
@@ -910,25 +1160,19 @@ function capture() {
   const isImage = clip?.kind === 'image';
   if (isImage && (!sourceImage.src || !sourceImage.naturalWidth)) return showToast('图片尚未载入');
   if (!isImage && (!video.src || video.readyState < 2 || !video.videoWidth)) return showToast('请先导入并载入视频');
+  if (autoExtracting) return showToast('自动抽帧进行中');
   displayMode = 'video';
   previewOverlay.classList.remove('active');
   setSequenceDisplay(false);
   video.pause();
-  const canvas = document.createElement('canvas');
-  canvas.width = isImage ? sourceImage.naturalWidth : video.videoWidth;
-  canvas.height = isImage ? sourceImage.naturalHeight : video.videoHeight;
-  canvas.getContext('2d').drawImage(isImage ? sourceImage : video, 0, 0, canvas.width, canvas.height);
-  const frameNumber = isImage ? 1 : Math.round(video.currentTime * 24);
-  frames.push(FrameModel.create({
-    id: crypto.randomUUID(),
-    image: canvas.toDataURL('image/png'),
-    delay: Math.round(1000 / fps),
-    time: isImage ? 0 : video.currentTime,
-    width: canvas.width,
-    height: canvas.height,
-    transform: { x: 0, y: 0, scale: 100, rotate: 0 },
-    source: { type: isImage ? 'image' : 'video', fileName: clip?.name || 'source', sourceTimeMs: isImage ? 0 : Math.round(video.currentTime * 1000) },
-    name: `${(clip?.name || 'video').replace(/\.[^.]+$/, '')}_${String(frameNumber).padStart(4, '0')}`
+  const timeSeconds = isImage ? 0 : video.currentTime;
+  const frameNumber = isImage ? 1 : Math.round(timeSeconds * SOURCE_VIDEO_FPS);
+  frames.push(capturedFrameFromMedia({
+    clip,
+    source: isImage ? sourceImage : video,
+    frameNumber,
+    timeSeconds,
+    sourceTimeMs: Math.round(timeSeconds * 1000)
   }));
   selected = frames.length - 1;
   selectedIndices = new Set([selected]);
@@ -937,6 +1181,131 @@ function capture() {
   updateInspector();
   showToast(`已截取第 ${String(frames.length).padStart(2, '0')} 帧`);
   markProjectDirty();
+}
+
+function autoExtractPlan() {
+  const clip = clips[activeClip];
+  if (!clip || clip.kind !== 'video') return [];
+  return FramePickVideoSampling.createPlan(clip.duration || video.duration, $('#autoExtractInterval').value, SOURCE_VIDEO_FPS);
+}
+
+function updateAutoExtractEstimate() {
+  const status = $('#autoExtractStatus');
+  if (!status || autoExtracting) return;
+  const clip = clips[activeClip];
+  if (!clip) return void (status.textContent = '请选择视频');
+  if (clip.kind !== 'video') return void (status.textContent = '仅支持视频');
+  status.textContent = `预计 ${autoExtractPlan().length} 帧`;
+}
+
+function setAutoExtractControls(running) {
+  autoExtracting = running;
+  const button = $('#autoExtractBtn');
+  button.textContent = running ? '停止' : '抽取全片';
+  button.classList.toggle('is-running', running);
+  button.setAttribute('aria-pressed', String(running));
+  $('#autoExtractInterval').disabled = running;
+  ['#captureBtn', '#rewindBtn', '#playBtn', '#forwardBtn', '#scrubber'].forEach((selector) => {
+    const control = $(selector);
+    if (control) control.disabled = running;
+  });
+}
+
+function seekVideoForCapture(timeSeconds) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => finish(reject, new Error('视频定位超时')), 15000);
+    const cleanup = () => {
+      clearTimeout(timeout);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onError);
+    };
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback(value);
+    };
+    const onSeeked = () => requestAnimationFrame(() => finish(resolve));
+    const onError = () => finish(reject, new Error('视频帧读取失败'));
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('error', onError);
+    if (Math.abs(video.currentTime - timeSeconds) < 0.0005 && video.readyState >= 2) {
+      requestAnimationFrame(() => finish(resolve));
+      return;
+    }
+    try { video.currentTime = timeSeconds; }
+    catch (error) { finish(reject, error); }
+  });
+}
+
+async function extractVideoAtInterval() {
+  if (autoExtracting) {
+    autoExtractCancelled = true;
+    $('#autoExtractStatus').textContent = '正在停止…';
+    return;
+  }
+  const clip = clips[activeClip];
+  if (!clip) return showToast('请先导入并载入视频');
+  if (clip.kind !== 'video') return showToast('自动抽帧仅支持视频素材');
+  if (!video.src || video.readyState < 2 || !video.videoWidth) return showToast('视频尚未载入完成');
+  const interval = FramePickVideoSampling.normalizeIntervalFrames($('#autoExtractInterval').value);
+  $('#autoExtractInterval').value = interval;
+  const plan = FramePickVideoSampling.createPlan(video.duration || clip.duration, interval, SOURCE_VIDEO_FPS);
+  if (!plan.length) return showToast('视频中没有可抽取的帧');
+  if (plan.length > 500 && !window.confirm(`本次将从原视频抽取 ${plan.length} 帧，可能占用较多内存。是否继续？`)) return;
+
+  stopPreview();
+  displayMode = 'video';
+  previewOverlay.classList.remove('active');
+  setSequenceDisplay(false);
+  video.pause();
+  const clipIndex = activeClip;
+  const originalTime = video.currentTime;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const extractedFrames = [];
+  autoExtractCancelled = false;
+  setAutoExtractControls(true);
+  try {
+    for (let index = 0; index < plan.length; index += 1) {
+      if (autoExtractCancelled) break;
+      if (activeClip !== clipIndex || clips[clipIndex] !== clip) throw new Error('抽取期间切换了视频素材');
+      const sample = plan[index];
+      $('#autoExtractStatus').textContent = `${index + 1} / ${plan.length}`;
+      await seekVideoForCapture(sample.timeSeconds);
+      if (autoExtractCancelled) break;
+      extractedFrames.push(capturedFrameFromMedia({
+        clip,
+        source: video,
+        frameNumber: sample.frameIndex,
+        timeSeconds: sample.timeSeconds,
+        sourceTimeMs: sample.sourceTimeMs,
+        canvas
+      }));
+    }
+    if (extractedFrames.length) {
+      frames.push(...extractedFrames);
+      selected = frames.length - 1;
+      selectedIndices = new Set([selected]);
+      selectionAnchor = selected;
+      renderTimeline();
+      updateInspector();
+      renderSequenceInMainWindow();
+      markProjectDirty();
+    }
+    const verb = autoExtractCancelled ? '已停止，保留' : '已抽取';
+    $('#autoExtractStatus').textContent = `${verb} ${extractedFrames.length} 帧`;
+    showToast(`${verb} ${extractedFrames.length} 帧，每隔 ${interval} 帧取一帧`);
+  } catch (error) {
+    $('#autoExtractStatus').textContent = '抽取失败';
+    showToast(`自动抽帧失败：${error.message}`);
+  } finally {
+    if (activeClip === clipIndex && video.src) video.currentTime = Math.min(originalTime, video.duration || originalTime);
+    setAutoExtractControls(false);
+    autoExtractCancelled = false;
+  }
 }
 
 function stopSequenceMotionClock() {
@@ -948,12 +1317,19 @@ function startSequenceMotionClock() {
   stopSequenceMotionClock();
   const total = sequenceTotalMs();
   if (!previewPlaying || total <= 0) return;
+  const loop = $('#loopToggle').classList.contains('active');
   const startedAt = performance.now();
-  const baseElapsed = previewElapsed;
+  const baseElapsed = !loop && previewElapsed >= total ? 0 : previewElapsed;
+  if (baseElapsed !== previewElapsed) {
+    previewElapsed = 0;
+    previewMotionElapsed = 0;
+    previewIndex = -1;
+    sequenceScrubber.value = '0';
+    $('#sequenceTimeLabel').textContent = formatTime(0, true);
+  }
   const tick = (timestamp) => {
     if (!previewPlaying) return;
     const rawElapsed = baseElapsed + timestamp - startedAt;
-    const loop = $('#loopToggle').classList.contains('active');
     previewElapsed = loop
       ? rawElapsed % total
       : Math.min(total, rawElapsed);
@@ -968,6 +1344,7 @@ function startSequenceMotionClock() {
       previewMotionTimer = null;
       $('#sequencePlayBtn').textContent = '▶';
       $('#sequencePlayBtn').classList.remove('is-playing');
+      schedulePanelStateSync();
       return;
     }
     previewMotionTimer = requestAnimationFrame(tick);
@@ -1002,8 +1379,9 @@ function applySequenceAnimationPreview(timeMs = previewElapsed) {
   const transform = sequenceTransformAt(timeMs);
   const scaleX = videoPanel.clientWidth / Math.max(1, canvasWidth);
   const scaleY = videoPanel.clientHeight / Math.max(1, canvasHeight);
-  const insets = FramePickSequenceAnimation.viewportInsets(videoPanel.clientWidth, videoPanel.clientHeight, transform, scaleX, scaleY);
-  videoPanel.style.margin = `${insets.top}px ${insets.right}px ${insets.bottom}px ${insets.left}px`;
+  // The work area is a fixed viewport. Animation transforms the canvas content
+  // only; never grow the surrounding layout to fit transformed bounds.
+  videoPanel.style.margin = '0px';
   previewOverlay.style.transformOrigin = 'center center';
   previewOverlay.style.transform = `translate(${transform.x * scaleX}px, ${transform.y * scaleY}px) rotate(${transform.rotate}deg) scale(${transform.scale / 100})`;
 }
@@ -1093,22 +1471,30 @@ video.addEventListener('loadedmetadata', () => {
   if (displayMode === 'video') videoPanel.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
   $('#durationLabel').textContent = formatTime(video.duration, true);
   $('#resolutionReadout').textContent = `${video.videoWidth} × ${video.videoHeight}`;
-  $('#scrubber').max = Math.round(video.duration * 24);
-  $('#currentFrame').nextElementSibling.textContent = `/ ${String(Math.round(video.duration * 24)).padStart(4, '0')}`;
+  $('#scrubber').max = Math.round(video.duration * SOURCE_VIDEO_FPS);
+  $('#currentFrame').nextElementSibling.textContent = `/ ${String(Math.round(video.duration * SOURCE_VIDEO_FPS)).padStart(4, '0')}`;
+  updateAutoExtractEstimate();
 });
 video.addEventListener('timeupdate', () => {
-  $('#scrubber').value = Math.round(video.currentTime * 24);
-  $('#currentFrame').textContent = String(Math.round(video.currentTime * 24)).padStart(4, '0');
+  $('#scrubber').value = Math.round(video.currentTime * SOURCE_VIDEO_FPS);
+  $('#currentFrame').textContent = String(Math.round(video.currentTime * SOURCE_VIDEO_FPS)).padStart(4, '0');
   $('#timeLabel').textContent = formatTime(video.currentTime, true);
 });
-$('#scrubber').oninput = (event) => { if (video.src) { stopPreview(); displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); video.currentTime = event.target.value / 24; } };
+$('#scrubber').oninput = (event) => { if (video.src) { stopPreview(); displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); video.currentTime = event.target.value / SOURCE_VIDEO_FPS; } };
 $('#playBtn').onclick = () => { const clip = clips[activeClip]; if (!clip) return showToast('请先导入素材'); if (clip.kind === 'image') return showToast('图片是静态素材，无法播放'); stopPreview(); displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); video.paused ? video.play() : video.pause(); };
 video.onplay = () => { $('#playBtn').textContent = 'Ⅱ'; displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); };
 video.onpause = () => { $('#playBtn').textContent = '▶'; };
-function step(direction) { const clip = clips[activeClip]; if (!clip) return showToast('请先导入素材'); if (clip.kind === 'image') return showToast('图片没有可逐帧浏览的时间轴'); stopPreview(); displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); video.pause(); video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + direction / 24)); }
+function step(direction) { const clip = clips[activeClip]; if (!clip) return showToast('请先导入素材'); if (clip.kind === 'image') return showToast('图片没有可逐帧浏览的时间轴'); stopPreview(); displayMode = 'video'; previewOverlay.classList.remove('active'); setSequenceDisplay(false); video.pause(); video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + direction / SOURCE_VIDEO_FPS)); }
 $('#rewindBtn').onclick = () => step(-1);
 $('#forwardBtn').onclick = () => step(1);
 $('#captureBtn').onclick = capture;
+$('#autoExtractInterval').oninput = updateAutoExtractEstimate;
+$('#autoExtractInterval').onchange = () => {
+  $('#autoExtractInterval').value = FramePickVideoSampling.normalizeIntervalFrames($('#autoExtractInterval').value);
+  updateAutoExtractEstimate();
+};
+$('#autoExtractInterval').onkeydown = (event) => { if (event.key === 'Enter') extractVideoAtInterval(); };
+$('#autoExtractBtn').onclick = extractVideoAtInterval;
 $('.video-panel').addEventListener('click', (event) => { if (displayMode !== 'sequence' && !event.target.closest('.capture-fab') && !event.target.closest('.video-placeholder') && !previewPlaying) capture(); });
 let transformDrag = null;
 previewOverlay.addEventListener('pointerdown', (event) => {
@@ -1183,6 +1569,7 @@ function updateWorkspaceScale(value) {
 }
 $('#previewSize').oninput = (event) => updateWorkspaceScale(event.target.value);
 $('#previewSizeMinus').onclick = () => updateWorkspaceScale(workspaceScale - 5);
+$('#previewSize100').onclick = () => updateWorkspaceScale(100);
 $('#previewSizePlus').onclick = () => updateWorkspaceScale(workspaceScale + 5);
 videoPanel.addEventListener('wheel', (event) => {
   if (!event.ctrlKey) return;
@@ -1358,11 +1745,13 @@ $('#sequencePlayBtn').onclick = () => {
     stopSequenceMotionClock();
     $('#sequencePlayBtn').textContent = '▶';
     $('#sequencePlayBtn').classList.remove('is-playing');
+    schedulePanelStateSync();
   } else {
     previewPlaying = true;
     $('#sequencePlayBtn').textContent = 'Ⅱ';
     $('#sequencePlayBtn').classList.add('is-playing');
     startSequenceMotionClock();
+    schedulePanelStateSync();
   }
 };
 sequenceScrubber.oninput = (event) => {
@@ -1371,6 +1760,7 @@ sequenceScrubber.oninput = (event) => {
   $('#sequencePlayBtn').textContent = '▶';
   $('#sequencePlayBtn').classList.remove('is-playing');
   setPreviewElapsed(Number(event.target.value), false);
+  schedulePanelStateSync();
 };
 sequenceScrubber.onpointerdown = () => {
   previewPlaying = false;
@@ -1380,6 +1770,7 @@ sequenceScrubber.onpointerdown = () => {
 };
 sequenceScrubber.onchange = (event) => {
   setPreviewElapsed(Number(event.target.value), true);
+  schedulePanelStateSync();
   console.info(`[序列进度条] position=${Number(event.target.value)}ms total=${sequenceTotalMs()}ms frame=${selected + 1}`);
 };
 $('#delayInput').onchange = (event) => { if (selected < 0) return; frames[selected].delay = normalizeDelay(event.target.value); refreshTimelineFrames([selected]); setPreviewElapsed(Math.min(previewElapsed, sequenceTotalMs())); if (previewPlaying) startSequenceMotionClock(); markProjectDirty(); };
@@ -1450,10 +1841,29 @@ function stepSequenceFrame(direction) {
   const next = nextActiveFrameIndex(current, direction);
   selectFrame(next);
 }
+
+function selectAllFrames() {
+  if (!frames.length) return showToast('当前没有可选择的序列帧');
+  selectedIndices = new Set(frames.map((_, index) => index));
+  selected = selected >= 0 ? selected : 0;
+  selectionAnchor = selected;
+  displayMode = 'sequence';
+  updateTimelineSelection();
+  updateInspector();
+  renderSequenceInMainWindow();
+  schedulePanelStateSync();
+}
+
 document.addEventListener('keydown', (event) => {
   const target = event.target;
   const editingField = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
   const key = event.key.toLowerCase();
+  const sequenceTarget = panelMode === 'sequence' || displayMode === 'sequence' || Boolean(target?.closest?.('#timeline, .sequence-section'));
+  if (!editingField && (event.ctrlKey || event.metaKey) && key === 'a' && sequenceTarget) {
+    event.preventDefault();
+    selectAllFrames();
+    return;
+  }
   if (!editingField && event.ctrlKey && key === 'z') {
     event.preventDefault();
     if (event.shiftKey) redoProjectChange(); else undoProjectChange();
@@ -1663,7 +2073,7 @@ async function importSequenceFolder() {
     if (manifest.format !== 'framepick-sequence' || manifest.schemaVersion !== 1 || !manifest.canvas || !Number.isInteger(manifest.canvas.width) || !Number.isInteger(manifest.canvas.height) || manifest.canvas.width < 1 || manifest.canvas.width > 32767 || manifest.canvas.height < 1 || manifest.canvas.height > 32767 || !sourceCanvas || !Number.isInteger(sourceCanvas.width) || !Number.isInteger(sourceCanvas.height) || sourceCanvas.width < 1 || sourceCanvas.width > 8192 || sourceCanvas.height < 1 || sourceCanvas.height > 8192 || !Number.isFinite(Number(manifest.fps)) || Number(manifest.fps) < 1 || Number(manifest.fps) > 60 || !['original', 'ai'].includes(manifest.variant) || !Array.isArray(manifest.frames) || manifest.frameCount !== manifest.frames.length || manifest.frameCount < 1) throw new Error('序列格式不受支持');
     const restored = [];
     for (const [index, entry] of manifest.frames.entries()) {
-      if (!entry || entry.index !== index || typeof entry.file !== 'string' || !Number.isFinite(Number(entry.delayMs)) || Number(entry.delayMs) < 20 || Number(entry.delayMs) > 5000 || typeof entry.skipped !== 'boolean' || entry.skipped || entry.source && (!['video', 'image'].includes(entry.source.type) || typeof entry.source.fileName !== 'string' || !entry.source.fileName || !Number.isFinite(Number(entry.source.sourceTimeMs)) || Number(entry.source.sourceTimeMs) < 0) || entry.sourceTimeMs != null && (!Number.isFinite(Number(entry.sourceTimeMs)) || Number(entry.sourceTimeMs) < 0)) throw new Error(`第 ${index + 1} 帧格式不受支持`);
+      if (!entry || entry.index !== index || typeof entry.file !== 'string' || !Number.isFinite(Number(entry.delayMs)) || Number(entry.delayMs) < 20 || Number(entry.delayMs) > 5000 || typeof entry.skipped !== 'boolean' || entry.skipped || entry.source && (!['video', 'image'].includes(entry.source.type) || typeof entry.source.fileName !== 'string' || !entry.source.fileName || !Number.isFinite(Number(entry.source.sourceTimeMs)) || Number(entry.source.sourceTimeMs) < 0 || entry.source.sourceFrameIndex != null && (!Number.isInteger(Number(entry.source.sourceFrameIndex)) || Number(entry.source.sourceFrameIndex) < 0)) || entry.sourceTimeMs != null && (!Number.isFinite(Number(entry.sourceTimeMs)) || Number(entry.sourceTimeMs) < 0)) throw new Error(`第 ${index + 1} 帧格式不受支持`);
       const paths = sequenceFramePaths(entry, index);
       const legacyImage = paths.legacy ? await readDirectoryImage(root, paths.legacy) : null;
       const originalImage = paths.original ? await readDirectoryImage(root, paths.original) : (manifest.variant === 'original' ? legacyImage : '');
@@ -1833,6 +2243,7 @@ function downloadBlob(blob, name) {
 function markProjectDirty() {
   recordHistoryChange();
   updateProjectIdentity(projectFileName, false);
+  schedulePanelStateSync();
 }
 
 function projectNameWithoutExtension() {
@@ -2481,6 +2892,24 @@ $('#exportPreset').onchange = (event) => {
 });
 $('#importSequenceBtn').onclick = importSequenceFolder;
 
+$('#assetsPopoutBtn').onclick = () => openPanelWindow('assets');
+$('#workspacePopoutBtn').onclick = () => openPanelWindow('workspace');
+$('#sequencePopoutBtn').onclick = () => openPanelWindow('sequence');
+$('#inspectorPopoutBtn').onclick = () => openPanelWindow('inspector');
+$('#assetsCollapseBtn').onclick = () => setPanelCollapsed('assets', true);
+$('#assetsRestoreTab').onclick = () => setPanelCollapsed('assets', false);
+$('#inspectorCollapseBtn').onclick = () => setPanelCollapsed('inspector', true);
+$('#inspectorRestoreTab').onclick = () => setPanelCollapsed('inspector', false);
+$('#timelineSize').oninput = (event) => updateTimelineScale(event.target.value);
+
+if (window.framepickDesktop?.panels) {
+  window.framepickDesktop.panels.onRequestState(() => {
+    if (!panelSyncApplying) window.framepickDesktop.panels.sendState(panelStateSnapshot());
+  });
+  window.framepickDesktop.panels.onState((state) => applyPanelState(state));
+  window.framepickDesktop.panels.onVisibility(({ panel, open }) => setPanelDetached(panel, open));
+}
+
 renderTimeline();
 updateInspector();
 updateMotionEditor();
@@ -2493,3 +2922,10 @@ updateProjectIdentity(projectFileName, false);
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('framepick-theme') || 'dark'; } catch { /* Use the requested dark default. */ }
 applyTheme(savedTheme);
+updateTimelineScale(timelineScale);
+
+if (panelMode) {
+  window.framepickDesktop?.panels?.requestState?.();
+} else {
+  schedulePanelStateSync();
+}

@@ -7,7 +7,7 @@ function sampleFrame(FrameModel) {
     id: 'frame-1',
     name: 'idle-1',
     image: 'data:image/png;base64,AA==',
-    source: { type: 'image', fileName: 'idle.png', sourceTimeMs: 0 },
+    source: { type: 'video', fileName: 'idle.mp4', sourceTimeMs: 1750, sourceFrameIndex: 42 },
     delayMs: 250,
     width: 256,
     height: 256,
@@ -38,6 +38,7 @@ test('project document JSON round-trips every sequence animation field', () => {
   });
   const reopened = JSON.parse(JSON.stringify(documentData));
   const validated = context.FramePickProjectIo.validateDocument(reopened);
+  assert.equal(reopened.frames[0].source.sourceFrameIndex, 42);
   assert.deepEqual(
     JSON.parse(JSON.stringify(validated.sequenceAnimation)),
     JSON.parse(JSON.stringify(motion))
@@ -57,6 +58,7 @@ test('schema v1 projects without sequenceAnimation remain readable', () => {
     assetPathForFrame: context.FramePickProjectIo.assetPathForFrame
   });
   delete documentData.sequenceAnimation;
+  delete documentData.frames[0].source.sourceFrameIndex;
   const validated = context.FramePickProjectIo.validateDocument(documentData);
   assert.equal(validated.sequenceAnimation.enabled, false);
   assert.equal(validated.sequenceAnimation.keyframes.length, 1);

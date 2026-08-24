@@ -15,6 +15,8 @@ const { createPluginManager } = require('./plugin-manager');
 app.setName('FramePick');
 
 let mainWindow = null;
+const panelWindows = new Map();
+let latestPanelState = null;
 let paths = null;
 let worker = null;
 let workerBuffer = '';
@@ -305,6 +307,30 @@ async function saveSpritesheet(payload) {
 }
 
 function registerIpc() {
+  ipcMain.handle('panels:open', async (_event, panel) => {
+    const result = await openPanelWindow(panel);
+    if (result?.ok && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('panels:visibility', { panel, open: true });
+    }
+    return result;
+  });
+  ipcMain.on('panels:request-state', (event) => {
+    if (latestPanelState) {
+      event.sender.send('panels:state', latestPanelState);
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed() && event.sender !== mainWindow.webContents) {
+      mainWindow.webContents.send('panels:request-state');
+    }
+  });
+  ipcMain.on('panels:state', (event, state) => {
+    latestPanelState = state;
+    const targets = [mainWindow, ...panelWindows.values()];
+    targets.forEach((window) => {
+      if (!window || window.isDestroyed() || window.webContents === event.sender) return;
+      window.webContents.send('panels:state', state);
+    });
+  });
   ipcMain.handle('project:open', async () => {
     const result = await dialog.showOpenDialog(mainWindow, { title: '打开 FramePick 项目', properties: ['openFile'], filters: [{ name: 'FramePick 项目', extensions: ['fpproj'] }] });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -369,6 +395,54 @@ function registerIpc() {
   ipcMain.handle('logs:clear', () => { fs.writeFileSync(logPath, `${new Date().toISOString()} [INFO] log cleared\n`, 'utf8'); return true; });
 }
 
+const panelSpecs = {
+  assets: { title: 'FramePick · 素材库', width: 380, height: 760, minWidth: 280, minHeight: 420 },
+  workspace: { title: 'FramePick · 取帧工作区', width: 980, height: 820, minWidth: 760, minHeight: 560 },
+  sequence: { title: 'FramePick · 序列帧', width: 1080, height: 430, minWidth: 620, minHeight: 300 },
+  inspector: { title: 'FramePick · 属性', width: 390, height: 820, minWidth: 300, minHeight: 520 }
+};
+
+async function openPanelWindow(panel) {
+  const spec = panelSpecs[panel];
+  if (!spec) return { ok: false, error: '未知面板' };
+  const existing = panelWindows.get(panel);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    return { ok: true, existing: true };
+  }
+  const panelWindow = new BrowserWindow({
+    title: spec.title,
+    width: spec.width,
+    height: spec.height,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
+    resizable: true,
+    backgroundColor: '#151b18',
+    show: false,
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') }
+  });
+  panelWindows.set(panel, panelWindow);
+  panelWindow.once('ready-to-show', () => panelWindow.show());
+  panelWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => log(level >= 3 ? 'RENDERER-ERROR' : 'PANEL-RENDERER', `${panel}:${sourceId || 'page'}:${line || 0}`, message));
+  panelWindow.webContents.on('render-process-gone', (_event, details) => log('ERROR', `panel renderer gone ${panel}`, details));
+  panelWindow.on('closed', () => {
+    if (panelWindows.get(panel) === panelWindow) panelWindows.delete(panel);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('panels:visibility', { panel, open: false });
+    }
+    log('INFO', `panel closed ${panel}`);
+  });
+  try {
+    await panelWindow.loadFile(path.join(paths.appRoot, 'index.html'), { query: { panel } });
+    return { ok: true };
+  } catch (error) {
+    panelWindows.delete(panel);
+    if (!panelWindow.isDestroyed()) panelWindow.close();
+    return { ok: false, error: error.message };
+  }
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -385,7 +459,14 @@ async function createWindow() {
   mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => log('ERROR', `page load failed code=${code} url=${url}`, description));
   mainWindow.webContents.on('did-finish-load', () => log('INFO', 'page loaded'));
   mainWindow.on('unresponsive', () => log('ERROR', 'window became unresponsive'));
-  mainWindow.on('closed', () => { log('INFO', 'window closed'); mainWindow = null; });
+  mainWindow.on('closed', () => {
+    log('INFO', 'window closed');
+    mainWindow = null;
+    for (const panelWindow of panelWindows.values()) {
+      if (!panelWindow.isDestroyed()) panelWindow.close();
+    }
+    panelWindows.clear();
+  });
   await mainWindow.loadFile(path.join(paths.appRoot, 'index.html'));
 }
 

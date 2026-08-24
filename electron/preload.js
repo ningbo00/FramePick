@@ -39,5 +39,25 @@ contextBridge.exposeInMainWorld('framepickDesktop', {
     getInfo: () => ipcRenderer.invoke('logs:get-info'),
     openFolder: () => ipcRenderer.invoke('logs:open-folder'),
     clear: () => ipcRenderer.invoke('logs:clear')
+  },
+  panels: {
+    open: (panel) => ipcRenderer.invoke('panels:open', panel),
+    requestState: () => ipcRenderer.send('panels:request-state'),
+    sendState: (state) => ipcRenderer.send('panels:state', state),
+    onRequestState: (callback) => {
+      const handler = () => callback();
+      ipcRenderer.on('panels:request-state', handler);
+      return () => ipcRenderer.removeListener('panels:request-state', handler);
+    },
+    onState: (callback) => {
+      const handler = (_event, state) => callback(state);
+      ipcRenderer.on('panels:state', handler);
+      return () => ipcRenderer.removeListener('panels:state', handler);
+    },
+    onVisibility: (callback) => {
+      const handler = (_event, visibility) => callback(visibility);
+      ipcRenderer.on('panels:visibility', handler);
+      return () => ipcRenderer.removeListener('panels:visibility', handler);
+    }
   }
 });

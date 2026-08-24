@@ -11,11 +11,16 @@
   }
 
   function source(value = {}) {
-    if (typeof value === 'string') return { type: 'video', fileName: value, sourceTimeMs: 0 };
+    if (typeof value === 'string') return { type: 'video', fileName: value, sourceTimeMs: 0, sourceFrameIndex: 0 };
+    const sourceTimeMs = Math.max(0, Number(value.sourceTimeMs) || 0);
+    const recordedFrameIndex = Number(value.sourceFrameIndex);
     return {
       type: value.type === 'image' ? 'image' : 'video',
       fileName: String(value.fileName || 'source'),
-      sourceTimeMs: Math.max(0, Number(value.sourceTimeMs) || 0)
+      sourceTimeMs,
+      sourceFrameIndex: Number.isFinite(recordedFrameIndex) && recordedFrameIndex >= 0
+        ? Math.round(recordedFrameIndex)
+        : Math.round(sourceTimeMs * 24 / 1000)
     };
   }
 

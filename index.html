@@ -29,7 +29,8 @@
 
     <main class="workspace">
       <aside class="sidebar">
-        <div class="section-label">素材库 <span id="clipCount">00</span></div>
+        <button class="panel-collapsed-tab" id="assetsRestoreTab" type="button" title="展开素材库" aria-label="展开素材库"><span>素材库</span></button>
+        <div class="section-label"><span class="section-label-name">素材库 <span id="clipCount">00</span></span><span class="panel-heading-actions"><button class="panel-minimize-button" id="assetsCollapseBtn" type="button" title="最小化素材库" aria-label="最小化素材库">−</button><button class="panel-popout-button" id="assetsPopoutBtn" type="button" title="弹出素材库窗口" aria-label="弹出素材库窗口">↗</button></span></div>
         <button class="import-button" id="importBtn"><span class="plus">＋</span><span>导入视频或图片</span><span class="shortcut">⌘O</span></button>
         <input id="fileInput" type="file" accept="video/*,image/*" multiple hidden>
         <div class="clip-list" id="clipList"><div class="clip-empty">将视频或图片拖到这里<br><span>支持同时拖入多个文件</span></div></div>
@@ -39,11 +40,11 @@
       <section class="main-canvas">
         <div class="canvas-toolbar">
           <div class="breadcrumbs"><span>素材库</span><b>/</b><strong id="currentClipName">未选择素材</strong></div>
-          <div class="toolbar-actions"><div class="display-size-control"><label for="previewSize">画面</label><button class="display-size-step" id="previewSizeMinus" type="button" title="缩小画布视图">−</button><input id="previewSize" type="range" min="10" max="400" value="55" title="调整画布视图缩放，不改变实际像素"><output id="previewSizeValue">55%</output><button class="display-size-step" id="previewSizePlus" type="button" title="放大画布视图">＋</button></div><div class="canvas-size-controls canvas-toolbar-size" title="设置序列画布分辨率"><label>画布</label><select id="canvasPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="canvasWidth" type="number" min="1" max="8192" value="1920" aria-label="画布宽度"><span>×</span><input id="canvasHeight" type="number" min="1" max="8192" value="1080" aria-label="画布高度"></div><span class="transform-mode-readout" id="transformModeReadout">W 位移</span></div>
+          <div class="toolbar-actions"><div class="display-size-control"><label for="previewSize">画面</label><button class="display-size-step" id="previewSizeMinus" type="button" title="缩小画布视图">−</button><input id="previewSize" type="range" min="10" max="400" value="55" title="调整画布视图缩放，不改变实际像素"><output id="previewSizeValue">55%</output><button class="display-size-step" id="previewSize100" type="button" title="以 100% 显示画布">100%</button><button class="display-size-step" id="previewSizePlus" type="button" title="放大画布视图">＋</button></div><div class="canvas-size-controls canvas-toolbar-size" title="设置序列画布分辨率"><label>画布</label><select id="canvasPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="canvasWidth" type="number" min="1" max="8192" value="1920" aria-label="画布宽度"><span>×</span><input id="canvasHeight" type="number" min="1" max="8192" value="1080" aria-label="画布高度"></div><span class="transform-mode-readout" id="transformModeReadout">W 位移</span></div>
         </div>
 
         <div class="capture-stage">
-          <div class="stage-header"><div><span class="eyebrow">取帧工作区</span><h1>从视频里，挑出你的关键瞬间</h1></div><div class="frame-readout"><span id="currentFrame">0048</span><small>/ 0288</small></div></div>
+          <div class="stage-header"><div><span class="eyebrow">取帧工作区</span><h1>从视频里，挑出你的关键瞬间</h1></div><div class="stage-header-actions"><div class="frame-readout"><span id="currentFrame">0048</span><small>/ 0288</small></div><button class="panel-popout-button" id="workspacePopoutBtn" type="button" title="弹出取帧工作区窗口" aria-label="弹出取帧工作区窗口">↗</button></div></div>
           <div class="canvas-view-scroll" id="canvasViewScroll">
           <div class="video-panel">
             <video id="video" class="video-element" preload="metadata" playsinline></video>
@@ -57,10 +58,12 @@
           </div>
           </div>
           <div class="transport"><button id="rewindBtn" class="transport-button" title="上一帧">◀</button><button id="playBtn" class="play-button" title="播放/暂停">▶</button><button id="forwardBtn" class="transport-button" title="下一帧">▶</button><div class="scrub-wrap"><input id="scrubber" type="range" min="0" max="288" value="48"><div class="scrub-labels"><span>00:00</span><span id="timeLabel">00:02.00</span><span id="durationLabel">00:12.00</span></div></div><div class="transport-meta"><span class="mono" id="fpsReadout">24 FPS</span><span class="mono" id="resolutionReadout">1920 × 1080</span></div></div>
+          <div class="auto-extract-bar"><strong>自动抽帧</strong><label for="autoExtractInterval">间隔 <input id="autoExtractInterval" type="number" min="1" max="9999" step="1" value="2"> 帧</label><button id="autoExtractBtn" type="button">抽取全片</button><output id="autoExtractStatus" aria-live="polite">预计 0 帧</output></div>
           <p class="hint"><span>⌘</span> 点击画面任意位置即可截取&nbsp;&nbsp; <span>←</span><span>→</span> 逐帧浏览</p>
         </div>
 
         <div class="sequence-section">
+          <div class="timeline-header"><span class="timeline-label">序列帧缩略图</span><div class="timeline-header-actions"><label class="timeline-size-control" title="调整序列帧缩略图大小"><span>缩略图</span><input id="timelineSize" type="range" min="56" max="180" value="78" step="2" aria-label="调整序列帧缩略图大小"></label><button class="panel-popout-button" id="sequencePopoutBtn" type="button" title="弹出序列帧窗口" aria-label="弹出序列帧窗口">↗</button></div></div>
           <div class="timeline" id="timeline"></div>
           <div class="sequence-transport"><button class="sequence-play-button" id="sequencePlayBtn" title="播放序列">▶</button><div class="sequence-scrub-wrap"><input id="sequenceScrubber" type="range" min="0" max="0" value="0" step="1"><div class="motion-keyframe-strip motion-keyframe-timeline" id="motionKeyframeStrip" aria-label="整图动画关键帧轨道"></div><div class="sequence-scrub-labels"><span id="sequenceTimeLabel">00:00.00</span><span id="sequenceDurationLabel">00:00.00</span></div></div><span class="mono sequence-fps-label" id="modalFpsLabel">12 FPS</span><button class="onion-skin-button active" id="onionSkinToggle" type="button" title="切换前后帧洋葱皮" aria-label="洋葱皮已开启" aria-pressed="true">洋葱皮</button><button class="sequence-loop-button active" id="loopToggle" type="button" title="循环播放已开启" aria-label="循环播放" aria-pressed="true">↻</button></div>
           <div class="timeline-footer"><span class="sequence-summary" id="sequenceSummary">00 帧</span><button class="delete-button timeline-delete-button" id="deleteBtn" title="删除选中帧（Backspace）">⌫ 删除选中帧</button><div class="timeline-fps-control"><span>预览帧率</span><div class="fps-control" title="调整后应用到所有未跳过帧；单帧可在右侧设置停留时长"><button id="fpsDown" title="降低帧率并应用到有效帧">−</button><strong id="fpsValue">12</strong><span>FPS</span><button id="fpsUp" title="提高帧率并应用到有效帧">＋</button></div></div><button class="sequence-variant-button timeline-variant-button" id="sequenceVariantBtn" type="button" aria-pressed="false">当前：原始序列</button><button class="preview-button timeline-preview-button" id="previewBtn">✦ <span>编辑序列</span></button><div class="timeline-ai-controls"><span id="aiSelectionText">未选择帧</span><strong id="aiProgressText">未开始</strong><progress id="aiBatchProgress" value="0" max="1"></progress><button class="ai-inspector-start timeline-ai-button" id="aiStartBtn">✦ AI 抠图</button></div><span class="mono" id="timelineTotal">总时长 00:00.67</span></div>
@@ -68,7 +71,8 @@
       </section>
 
       <aside class="inspector">
-        <div class="inspector-heading"><div><span class="eyebrow">属性</span><h2>帧设置</h2></div><button class="close-inspector" title="关闭属性">×</button></div>
+        <button class="panel-collapsed-tab" id="inspectorRestoreTab" type="button" title="展开属性" aria-label="展开属性"><span>属性</span></button>
+        <div class="inspector-heading"><div><span class="eyebrow">属性</span><h2>帧设置</h2></div><div class="inspector-heading-actions"><button class="panel-minimize-button" id="inspectorCollapseBtn" type="button" title="最小化属性" aria-label="最小化属性">−</button><button class="panel-popout-button" id="inspectorPopoutBtn" type="button" title="弹出属性窗口" aria-label="弹出属性窗口">↗</button></div></div>
         <div class="selected-frame-preview empty" id="selectedPreview"><img id="selectedPreviewImage" alt="当前帧"><div class="preview-grid"></div><span>FRAME <b id="selectedFrameNumber">--</b></span></div>
         <div class="field-group"><label>帧名称</label><input id="frameName" value="未选择帧" /></div>
         <div class="field-group"><label>停留时长 <span class="unit">毫秒</span></label><div class="number-input"><input id="delayInput" type="number" min="20" max="5000" value="83"><span>ms</span><div class="stepper"><button id="delayUp">＋</button><button id="delayDown">−</button></div></div><div class="quick-delays"><button data-delay="42">42</button><button data-delay="83" class="active">83</button><button data-delay="125">125</button><button data-delay="250">250</button></div><label class="skip-frame-setting"><input id="skipFrame" type="checkbox"> 跳过此帧 <span>播放和时长计算时暂时隐藏</span></label></div>
@@ -130,6 +134,7 @@
   </div>
   <div class="toast" id="toast"></div>
   <script src="renderer/sequence-animation.js"></script>
+  <script src="renderer/video-sampling.js"></script>
   <script src="renderer/state.js"></script>
   <script src="renderer/frame-model.js"></script>
   <script src="renderer/timeline.js"></script>

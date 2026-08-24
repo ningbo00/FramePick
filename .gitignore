@@ -9,3 +9,7 @@ temp/
 exports/
 .cache/
 user-data/
+projects-local/
+assets-local/
+models/
+runtime/

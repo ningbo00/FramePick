@@ -47,11 +47,14 @@
 - 原生 `controller` 动画写入 `FramePickSequenceController` 的动画通道，由 Controller 相对应用到 `FootPivot` 基础变换；标准 `AnimationPlayer` 可直接加载、查看和播放，脚底锚点不被覆盖。
 - Godot addon 新增 `FramePickAnimationPlayer` 原生节点：作为 Controller 子节点时自动继承 sequence、加载生成的 `AnimationLibrary` 并在 Godot Animation 面板直接显示 `framepick/motion` 与 `framepick/controller`。
 - 本地 Godot 工程可通过 Subversion 客户端 `global-ignores=... framepick_importer` 忽略 addon，不修改仓库 `svn:ignore` 属性，也不把本机插件带入 SVN。
+- 编辑器序列预览使用固定工作区视口；整图关键帧只变换画布内容，不再通过动态 margin 撑动外层窗口。工作区支持内部滚动、画布边框、参考网格和 100% 显示快捷入口。
 - `FramePickPlayer2D` 在运行时同时播放逐帧序列和整图节点动画，节点动画不修改 PNG 像素。
 - Godot 插件新增 `FramePickSequenceController`，可在不替换现有 `Sprite2D` 的情况下把换帧绑定到 `Sprite`、把整图曲线绑定到 `FootPivot`；位移相加、缩放相乘、旋转相加，保留脚底基准与游戏侧基础变换。
 - 启动脚本在缺少依赖或 Electron 二进制时自动执行 `npm ci` 和 Electron 安装脚本。
 - 启动脚本恢复依赖时使用 `npm ci --omit=peer`，不安装当前 NSIS/Portable 目标未使用的 Squirrel、签名 peer 工具和调试文件；Electron/Chromium 运行时保持完整。
 - 未指定 Python 时会遍历候选解释器并优先选择已安装 Pillow、rembg 和 onnxruntime 的环境。
+- 原视频支持按固定 24 FPS 源时间轴每隔 X 帧自动抽取全片，按 `0、X、2X...` 追加为序列；界面显示预计/实际数量，超过 500 帧先确认，抽取期间可停止并保留已完成部分，整批结果可一次撤销。
+- 序列帧保存原视频 `sourceFrameIndex`；点击时间轴帧时在不切换主画面的情况下后台定位对应素材，并同步源视频进度条、帧号和时间，便于随后向前或向后补帧。旧数据按 `sourceTimeMs` 回推源帧号。
 
 ## 模块拆分
 
@@ -85,9 +88,10 @@
 - FFmpeg GIF 和奇数尺寸 MP4 导出；MP4 使用偶数尺寸 padding。
 - FrameModel 项目条目往返转换。
 - 开发版和打包版 Electron 启动并加载页面，无 Python HTTP 子进程。
-- `npm test`：22 项通过，覆盖完整项目动画字段往返、插件发现与隔离、Godot 包写盘、旧帧清理、插件安装、序列 manifest 和 Canvas 渲染契约。
+- `npm test`：27 项通过，覆盖完整项目动画字段往返、源视频抽帧与定位换算、插件发现与隔离、Godot 包写盘、旧帧清理、插件安装、序列 manifest 和 Canvas 渲染契约。
 - `scripts/validate-godot-plugin.js`：Godot 4.6.3 真实导入，验证生成的原生 `.tres`、`motion/controller` 动画、Bezier 控制点换算、`83ms + 125ms` 原生切帧时间、播放器资源绑定，以及标准 `AnimationPlayer` 对 `Player/FootPivot/Sprite2D` 脚底锁定结构的实际驱动。
 - Electron 四帧循环烟雾回归：跨循环边界持续播放，1.15 秒内主 Canvas 仅随源帧切换重绘 5 次，时间轴重建 0 次，页面异常 0 个。
+- 浏览器真实视频回归：点击来源第 15 帧的序列缩略图后，源进度条定位到第 15 帧 / 0.625 秒，主画面继续显示序列；点击第一帧可回到第 0 帧，控制台无错误。
 
 ## 后续回归重点
 

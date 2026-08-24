@@ -5,7 +5,7 @@ const { loadBrowserModules } = require('./helpers/load-browser-modules');
 test('sequence manifest separates original, AI, and transformed frame paths', () => {
   const context = loadBrowserModules('renderer/sequence-animation.js', 'renderer/export.js');
   const frames = [
-    { id: 'one', name: 'one', delay: 100, time: 0, source: { type: 'image', fileName: 'one.png', sourceTimeMs: 0 }, transform: { x: 1 }, variants: { backgroundRemoved: 'ai-one', transform: { x: 2 } } },
+    { id: 'one', name: 'one', delay: 100, time: 0, source: { type: 'video', fileName: 'one.mp4', sourceTimeMs: 500, sourceFrameIndex: 12 }, transform: { x: 1 }, variants: { backgroundRemoved: 'ai-one', transform: { x: 2 } } },
     { id: 'two', name: 'two', delay: 120, time: 0, source: { type: 'image', fileName: 'two.png', sourceTimeMs: 0 }, transform: { x: 3 }, variants: { transform: { x: 4 } } }
   ];
   const manifest = context.FramePickExport.buildSequenceManifest({
@@ -33,6 +33,7 @@ test('sequence manifest separates original, AI, and transformed frame paths', ()
   });
   assert.equal(manifest.frames[0].transforms.original.x, 1);
   assert.equal(manifest.frames[0].transforms.ai.x, 2);
+  assert.equal(manifest.frames[0].source.sourceFrameIndex, 12);
   assert.equal(manifest.frames[1].files.ai, null);
   assert.equal(manifest.sequenceAnimation.target, 'output-node');
   assert.equal(manifest.sequenceAnimation.bakedIntoFrames, false);
