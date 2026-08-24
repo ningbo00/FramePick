@@ -18,6 +18,8 @@ let mainWindow = null;
 const projectWindows = new Map();
 const panelWindows = new Map();
 const latestPanelStates = new Map();
+const pendingCloseRequests = new Map();
+let closeRequestCounter = 0;
 let paths = null;
 let worker = null;
 let workerBuffer = '';
@@ -338,6 +340,34 @@ function registerIpc() {
     if (ownerWindow && !ownerWindow.isDestroyed()) ownerWindow.setTitle(String(title || 'FramePick'));
     return true;
   });
+  ipcMain.handle('window:confirm-close', async (event) => {
+    const ownerWindow = ownerWindowForEvent(event);
+    if (!ownerWindow || ownerWindow.isDestroyed()) return { action: 'cancel' };
+    const result = await dialog.showMessageBox(ownerWindow, {
+      type: 'warning',
+      title: 'FramePick',
+      message: '当前项目有未保存的修改。',
+      detail: '关闭前是否保存这些修改？',
+      buttons: ['保存', '不保存', '取消'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true
+    });
+    return { action: result.response === 0 ? 'save' : result.response === 1 ? 'discard' : 'cancel' };
+  });
+  ipcMain.handle('window:close-response', (event, payload = {}) => {
+    const requestId = String(payload.requestId || '');
+    const pending = pendingCloseRequests.get(requestId);
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (!pending || pending.window !== senderWindow) return { ok: false, error: '关闭请求已失效' };
+    pendingCloseRequests.delete(requestId);
+    pending.window.__framepickClosePending = false;
+    if (payload.action === 'allow') {
+      pending.window.__framepickAllowClose = true;
+      pending.window.close();
+    }
+    return { ok: true };
+  });
   ipcMain.handle('panels:open', async (event, panel) => {
     const ownerWindow = ownerWindowForEvent(event);
     const result = await openPanelWindow(panel, ownerWindow);
@@ -505,6 +535,19 @@ async function createProjectWindow() {
   projectWindow.webContents.on('did-fail-load', (_event, code, description, url) => log('ERROR', `page load failed code=${code} url=${url}`, description));
   projectWindow.webContents.on('did-finish-load', () => log('INFO', `project page loaded ${ownerId}`));
   projectWindow.on('unresponsive', () => log('ERROR', `project window became unresponsive ${ownerId}`));
+  projectWindow.on('close', (event) => {
+    if (projectWindow.__framepickAllowClose) return;
+    if (projectWindow.webContents.isLoading()) {
+      projectWindow.__framepickAllowClose = true;
+      return;
+    }
+    event.preventDefault();
+    if (projectWindow.__framepickClosePending) return;
+    projectWindow.__framepickClosePending = true;
+    const requestId = `${ownerId}:${++closeRequestCounter}`;
+    pendingCloseRequests.set(requestId, { window: projectWindow });
+    projectWindow.webContents.send('window:close-request', { requestId });
+  });
   projectWindow.on('closed', () => {
     log('INFO', `project window closed ${ownerId}`);
     for (const [key, entry] of panelWindows.entries()) {
@@ -513,6 +556,9 @@ async function createProjectWindow() {
       panelWindows.delete(key);
     }
     latestPanelStates.delete(ownerId);
+    for (const [requestId, request] of pendingCloseRequests.entries()) {
+      if (request.window === projectWindow) pendingCloseRequests.delete(requestId);
+    }
     projectWindows.delete(ownerId);
     if (mainWindow === projectWindow) mainWindow = projectWindows.values().next().value || null;
   });

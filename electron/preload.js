@@ -3,7 +3,14 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('framepickDesktop', {
   window: {
     openProject: () => ipcRenderer.invoke('window:open-project'),
-    setTitle: (title) => ipcRenderer.invoke('window:set-title', title)
+    setTitle: (title) => ipcRenderer.invoke('window:set-title', title),
+    confirmClose: () => ipcRenderer.invoke('window:confirm-close'),
+    respondClose: (payload) => ipcRenderer.invoke('window:close-response', payload),
+    onCloseRequest: (callback) => {
+      const handler = (_event, payload) => callback(payload);
+      ipcRenderer.on('window:close-request', handler);
+      return () => ipcRenderer.removeListener('window:close-request', handler);
+    }
   },
   project: {
     open: () => ipcRenderer.invoke('project:open'),

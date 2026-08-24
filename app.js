@@ -69,6 +69,7 @@ let exportResolutionExplicit = false;
 let undoStack = [];
 let redoStack = [];
 let historySnapshot = '';
+let savedProjectSnapshot = '';
 let historyApplying = false;
 let inspectorPreviewToken = 0;
 let selectedMotionKeyframeId = sequenceAnimation.keyframes[0]?.id || '';
@@ -291,6 +292,7 @@ function updateExportResolution(width, height, followCanvas = false) {
 
 function initializeHistory() {
   historySnapshot = historyDocument();
+  savedProjectSnapshot = historySnapshot;
   undoStack = [];
   redoStack = [];
 }
@@ -1994,6 +1996,39 @@ $('#selectPythonBtn').onclick = () => chooseRuntimePath('python_path', [{ name: 
 $('#selectFfmpegBtn').onclick = () => chooseRuntimePath('ffmpeg_path', [{ name: 'FFmpeg', extensions: ['exe'] }]);
 $('#selectBirefnetBtn').onclick = () => chooseRuntimePath('birefnet_model_path', [{ name: 'BiRefNet ONNX', extensions: ['onnx'] }]);
 $('#runtimeDiagnoseBtn').onclick = loadRuntimeDiagnostics;
+
+async function handleCloseRequest({ requestId } = {}) {
+  if (!requestId || !window.framepickDesktop?.window?.respondClose) return;
+  try {
+    if (projectSaving) {
+      showToast('项目正在保存，请稍候');
+      await window.framepickDesktop.window.respondClose({ requestId, action: 'cancel' });
+      return;
+    }
+    if (!projectHasUnsavedChanges()) {
+      await window.framepickDesktop.window.respondClose({ requestId, action: 'allow' });
+      return;
+    }
+    const choice = await window.framepickDesktop.window.confirmClose?.();
+    if (choice?.action === 'discard') {
+      await window.framepickDesktop.window.respondClose({ requestId, action: 'allow' });
+      return;
+    }
+    if (choice?.action === 'save') {
+      const saved = await saveProject();
+      if (saved && !projectHasUnsavedChanges()) {
+        await window.framepickDesktop.window.respondClose({ requestId, action: 'allow' });
+        return;
+      }
+    }
+    await window.framepickDesktop.window.respondClose({ requestId, action: 'cancel' });
+  } catch (error) {
+    console.error('[关闭项目] 处理失败', error);
+    try { await window.framepickDesktop.window.respondClose({ requestId, action: 'cancel' }); } catch { /* The window may already be gone. */ }
+  }
+}
+
+window.framepickDesktop?.window?.onCloseRequest?.(handleCloseRequest);
 $('#canvasPreset').onchange = (event) => {
   const value = event.target.value;
   if (value === 'custom') return;
@@ -2599,6 +2634,16 @@ function markProjectDirty() {
   schedulePanelStateSync();
 }
 
+function projectHasUnsavedChanges() {
+  if (projectSaving) return true;
+  return Boolean(savedProjectSnapshot && historyDocument() !== savedProjectSnapshot);
+}
+
+function markProjectSaved() {
+  savedProjectSnapshot = historyDocument();
+  redoStack = [];
+}
+
 function projectNameWithoutExtension() {
   return projectFileName.replace(/\.fpproj$/i, '') || '未命名项目';
 }
@@ -2690,23 +2735,26 @@ async function buildProjectPayload() {
 
 async function saveProjectAs() {
   if (window.framepickDesktop?.project?.saveAs) {
-    if (projectSaving) return showToast('项目正在保存，请稍候');
+    if (projectSaving) { showToast('项目正在保存，请稍候'); return false; }
     projectSaving = true;
     $('#saveProjectBtn').disabled = true;
     $('#saveProjectAsBtn').disabled = true;
     try {
       showToast('正在准备完整项目快照…');
       const result = await window.framepickDesktop.project.saveAs({ fileName: projectFileName, ...await buildProjectPayload() });
-      if (result?.canceled) return;
-      if (result?.error) return showToast(`项目保存失败：${result.error}`);
+      if (result?.canceled) return false;
+      if (result?.error) { showToast(`项目保存失败：${result.error}`); return false; }
       projectFilePath = result.filePath;
       projectFileName = result.filePath.split(/[\\/]/).pop() || projectFileName;
       projectFileHandle = null;
       rememberProjectLocation();
+      markProjectSaved();
       updateProjectIdentity(projectFileName, true);
       showToast('完整项目已保存（项目文件、原图、AI 图和最终序列）');
+      return true;
     } catch (error) {
       showToast(`项目保存失败：${error.message}`);
+      return false;
     } finally {
       projectSaving = false;
       $('#saveProjectBtn').disabled = false;
@@ -2715,22 +2763,26 @@ async function saveProjectAs() {
     return;
   }
   showToast('项目保存仅支持 FramePick 桌面版');
+  return false;
 }
 
 async function saveProject() {
   if (window.framepickDesktop?.project?.write && projectFilePath) {
-    if (projectSaving) return showToast('项目正在保存，请稍候');
+    if (projectSaving) { showToast('项目正在保存，请稍候'); return false; }
     projectSaving = true;
     $('#saveProjectBtn').disabled = true;
     $('#saveProjectAsBtn').disabled = true;
     try {
       showToast('正在准备完整项目快照…');
       const result = await window.framepickDesktop.project.write({ filePath: projectFilePath, ...await buildProjectPayload() });
-      if (!result?.ok) return showToast(`项目保存失败：${result?.error || '写入失败'}`);
+      if (!result?.ok) { showToast(`项目保存失败：${result?.error || '写入失败'}`); return false; }
+      markProjectSaved();
       updateProjectIdentity(projectFileName, true);
       showToast('完整项目已保存（项目文件、原图、AI 图和最终序列）');
+      return true;
     } catch (error) {
       showToast(`项目保存失败：${error.message}`);
+      return false;
     } finally {
       projectSaving = false;
       $('#saveProjectBtn').disabled = false;
