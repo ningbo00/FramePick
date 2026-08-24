@@ -342,6 +342,7 @@ function updateProjectIdentity(name, saved) {
   $('#projectName').textContent = projectFileName.replace(/\.fpproj$/i, '');
   $('#projectStatus').textContent = saved ? '· 已保存' : '· 未保存';
   $('.status-dot').classList.toggle('unsaved', !saved);
+  if (!panelMode) window.framepickDesktop?.window?.setTitle?.(`FramePick · ${projectFileName.replace(/\.fpproj$/i, '') || '未命名项目'}`);
 }
 
 function rememberProjectLocation() {
@@ -2830,6 +2831,11 @@ async function exportMedia() {
 }
 
 $('#newProjectBtn').onclick = newProject;
+$('#newProjectWindowBtn').onclick = async () => {
+  if (!window.framepickDesktop?.window?.openProject) return showToast('新窗口仅支持桌面版');
+  const result = await window.framepickDesktop.window.openProject();
+  if (!result?.ok) showToast(`无法创建新项目窗口：${result?.error || '未知错误'}`);
+};
 const importExportButton = $('#importExportBtn');
 const importExportMenu = $('#importExportMenu');
 function closeImportExportMenu() {

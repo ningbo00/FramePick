@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('framepickDesktop', {
+  window: {
+    openProject: () => ipcRenderer.invoke('window:open-project'),
+    setTitle: (title) => ipcRenderer.invoke('window:set-title', title)
+  },
   project: {
     open: () => ipcRenderer.invoke('project:open'),
     save: (payload) => ipcRenderer.invoke('project:write', payload),
