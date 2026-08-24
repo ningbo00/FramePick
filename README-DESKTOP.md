@@ -145,4 +145,4 @@ Godot addon 可以只在本机使用而不进入 SVN：在本机 `%APPDATA%\Subv
 npm run dist
 ```
 
-安装包会输出到 `dist/`。远程 AI 请求由 Electron 主进程发出，本地抠图依赖 `workers/birefnet_worker.py` 和可用的 BiRefNet 模型。
+安装包会输出到 `dist/`。构建过程中 Electron Builder 会临时生成 `dist/win-unpacked/`，构建成功后 FramePick 会自动清理这个未压缩中间目录，只保留安装包、blockmap 和更新元数据，避免在项目目录中长期保留第二份约 348 MB 的 Electron。也可以单独运行 `npm run clean:dist` 清理已有的打包中间目录。远程 AI 请求由 Electron 主进程发出，本地抠图依赖 `workers/birefnet_worker.py` 和可用的 BiRefNet 模型。

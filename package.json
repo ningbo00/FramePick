@@ -6,8 +6,9 @@
   "scripts": {
     "test": "node --test \"tests/*.test.js\"",
     "start": "electron .",
-    "dist": "electron-builder",
-    "dist:portable": "electron-builder --win portable --config.artifactName=FramePick-Portable-${version}.${ext}"
+    "clean:dist": "node scripts/cleanup-dist.js",
+    "dist": "electron-builder && npm run clean:dist",
+    "dist:portable": "electron-builder --win portable --config.artifactName=FramePick-Portable-${version}.${ext} && npm run clean:dist"
   },
   "private": true,
   "devDependencies": {
