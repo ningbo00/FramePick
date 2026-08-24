@@ -7,6 +7,7 @@ const projectFileInput = $('#projectFileInput');
 const toast = $('#toast');
 const sidebar = $('.sidebar');
 const previewOverlay = $('#sequencePreviewOverlay');
+const pixelEditOverlay = $('#pixelEditOverlay');
 const onionPrevOverlay = $('#onionPrevOverlay');
 const onionNextOverlay = $('#onionNextOverlay');
 const videoPanel = $('.video-panel');
@@ -49,6 +50,9 @@ let displayMode = 'video';
 let sequenceVariant = initialState.sequenceVariant;
 let sequenceAnimation = initialState.sequenceAnimation;
 let transformMode = 'move';
+let pixelEditMode = '';
+let pixelSelection = null;
+let pixelEditDrag = null;
 let workspaceScale = Number($('#previewSize')?.value) || 55;
 let timelineScale = Number($('#timelineSize')?.value) || 78;
 let canvasWidth = initialState.canvasWidth;
@@ -110,6 +114,8 @@ function schedulePanelStateSync() {
 function applyPanelState(state) {
   if (!state || panelSyncApplying) return;
   panelSyncApplying = true;
+  pixelSelection = null;
+  pixelEditDrag = null;
   try {
     if (Array.isArray(state.clips)) {
       if (panelMode) {
@@ -175,6 +181,7 @@ function applyPanelState(state) {
       $('#sequenceTimeLabel').textContent = formatTime(previewElapsed / 1000, true);
     }
     updateProjectIdentity(projectFileName, false);
+    updatePixelEditControls();
   } finally {
     panelSyncApplying = false;
   }
@@ -383,6 +390,177 @@ function setFrameTransform(frame, transform, variant = sequenceVariant) {
   } else frame.transform = { ...transform };
 }
 
+function clampPixelPoint(point) {
+  return {
+    x: Math.max(0, Math.min(canvasWidth, Number(point?.x) || 0)),
+    y: Math.max(0, Math.min(canvasHeight, Number(point?.y) || 0))
+  };
+}
+
+function pixelPointFromEvent(event) {
+  if (!pixelEditOverlay) return { x: 0, y: 0 };
+  const bounds = pixelEditOverlay.getBoundingClientRect();
+  return clampPixelPoint({
+    x: ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * canvasWidth,
+    y: ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * canvasHeight
+  });
+}
+
+function normalizePixelRect(start, end) {
+  return {
+    type: 'rect',
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y)
+  };
+}
+
+function pixelSelectionHasArea(selection = pixelSelection) {
+  if (!selection) return false;
+  if (selection.type === 'rect') return selection.width >= 1 && selection.height >= 1;
+  return selection.type === 'brush' && selection.points?.length > 0;
+}
+
+function drawPixelSelection() {
+  if (!pixelEditOverlay) return;
+  const overlayScale = Math.min(1, 2048 / Math.max(1, canvasWidth, canvasHeight));
+  pixelEditOverlay.width = Math.max(1, Math.round(canvasWidth * overlayScale));
+  pixelEditOverlay.height = Math.max(1, Math.round(canvasHeight * overlayScale));
+  const context = pixelEditOverlay.getContext('2d');
+  context.clearRect(0, 0, pixelEditOverlay.width, pixelEditOverlay.height);
+  if (!pixelSelectionHasArea()) return;
+  context.save();
+  context.scale(overlayScale, overlayScale);
+  context.fillStyle = 'rgba(216, 242, 103, 0.16)';
+  context.strokeStyle = '#d8f267';
+  context.lineWidth = Math.max(1, canvasWidth / Math.max(1, pixelEditOverlay.clientWidth) * 1.5);
+  context.setLineDash([8, 5]);
+  if (pixelSelection.type === 'rect') {
+    context.fillRect(pixelSelection.x, pixelSelection.y, pixelSelection.width, pixelSelection.height);
+    context.strokeRect(pixelSelection.x, pixelSelection.y, pixelSelection.width, pixelSelection.height);
+  } else {
+    context.setLineDash([]);
+    context.lineWidth = Math.max(2, Number(pixelSelection.size) || Number($('#pixelBrushSize')?.value) || 36);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.beginPath();
+    const points = pixelSelection.points;
+    context.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+    if (points.length === 1) context.lineTo(points[0].x + 0.01, points[0].y);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function updatePixelEditControls() {
+  const hasFrame = displayMode === 'sequence' && selected >= 0 && Boolean(frames[selected]);
+  const hasSelection = hasFrame && pixelSelectionHasArea();
+  $('#pixelRectSelectBtn')?.classList.toggle('active', pixelEditMode === 'rect');
+  $('#pixelBrushSelectBtn')?.classList.toggle('active', pixelEditMode === 'brush');
+  $('#pixelEraseBtn')?.toggleAttribute('disabled', !hasSelection);
+  $('#pixelClearSelectionBtn')?.toggleAttribute('disabled', !hasSelection);
+  pixelEditOverlay?.classList.toggle('active', hasFrame && Boolean(pixelEditMode));
+  drawPixelSelection();
+}
+
+function clearPixelSelection() {
+  pixelSelection = null;
+  pixelEditDrag = null;
+  updatePixelEditControls();
+}
+
+function setPixelEditMode(mode) {
+  if (!['rect', 'brush'].includes(mode)) {
+    pixelEditMode = '';
+    clearPixelSelection();
+    return;
+  }
+  if (displayMode !== 'sequence' || selected < 0 || !frames[selected]) return showToast('请先进入序列编辑并选择一帧');
+  pixelEditMode = pixelEditMode === mode ? '' : mode;
+  pixelSelection = null;
+  updatePixelEditControls();
+}
+
+function sourceTransformForErase(frame, imageWidth, imageHeight) {
+  const transform = frameTransform(frame);
+  const scale = Math.max(0.0001, transform.scale / 100);
+  const angle = Number(transform.rotate || 0) * Math.PI / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const a = cos / scale;
+  const b = -sin / scale;
+  const c = sin / scale;
+  const d = cos / scale;
+  const canvasOriginX = canvasWidth / 2 + transform.x;
+  const canvasOriginY = canvasHeight / 2 + transform.y;
+  return {
+    a, b, c, d,
+    e: imageWidth / 2 - a * canvasOriginX - c * canvasOriginY,
+    f: imageHeight / 2 - b * canvasOriginX - d * canvasOriginY
+  };
+}
+
+function drawPixelSelectionPath(context) {
+  if (!pixelSelectionHasArea()) return;
+  if (pixelSelection.type === 'rect') {
+    context.beginPath();
+    context.rect(pixelSelection.x, pixelSelection.y, pixelSelection.width, pixelSelection.height);
+    context.fill();
+    return;
+  }
+  const points = pixelSelection.points;
+  context.beginPath();
+  context.lineWidth = Math.max(1, Number(pixelSelection.size) || 36);
+  context.lineCap = 'round';
+  context.lineJoin = 'round';
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+  if (points.length === 1) context.lineTo(points[0].x + 0.01, points[0].y);
+  context.stroke();
+}
+
+async function eraseSelectedPixels() {
+  const frame = frames[selected];
+  if (!frame || !pixelSelectionHasArea()) return showToast('请先绘制框选或画笔选区');
+  if (sequenceVariant === 'ai' && !frame.variants?.backgroundRemoved) return showToast('当前帧没有可编辑的 AI 图像');
+  const imageSource = frameImageSource(frame, sequenceVariant);
+  if (!imageSource) return showToast(`当前没有可编辑的${sequenceVariant === 'ai' ? 'AI' : '原始'}图像`);
+  const image = new Image();
+  image.src = imageSource;
+  try {
+    await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('图像加载失败')); });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, image.naturalWidth || frame.width || 1);
+    canvas.height = Math.max(1, image.naturalHeight || frame.height || 1);
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    context.save();
+    context.globalCompositeOperation = 'destination-out';
+    const transform = sourceTransformForErase(frame, canvas.width, canvas.height);
+    context.setTransform(transform.a, transform.b, transform.c, transform.d, transform.e, transform.f);
+    drawPixelSelectionPath(context);
+    context.restore();
+    const editedImage = canvas.toDataURL('image/png');
+    if (sequenceVariant === 'ai') {
+      frame.variants ||= {};
+      frame.variants.backgroundRemoved = editedImage;
+    } else frame.image = editedImage;
+    pixelSelection = null;
+    renderFrameIntoElement(previewOverlay, frame, sequenceVariant, canvasWidth, canvasHeight, workspacePreviewScale());
+    updateInspector();
+    refreshTimelineFrames([selected], { thumbnails: true, summary: false });
+    updateOnionSkin();
+    updatePixelEditControls();
+    markProjectDirty();
+    showToast('已擦除选区像素');
+  } catch (error) {
+    console.warn('[像素擦除] 处理失败', error);
+    showToast(`像素擦除失败：${error.message}`);
+  }
+}
+
 function sequenceTransformAt(timeMs = 0) {
   return FramePickSequenceAnimation.evaluate(sequenceAnimation, timeMs);
 }
@@ -517,6 +695,7 @@ function setSequenceDisplay(active) {
   const button = $('#previewBtn');
   if (button) button.innerHTML = active ? '▣ <span>显示素材视频</span>' : '✦ <span>编辑序列</span>';
   updateCanvasDisplaySize();
+  updatePixelEditControls();
   if (!active) updateOnionSkin();
 }
 
@@ -695,6 +874,7 @@ function updateSelectionLabel() {
 
 function selectFrame(index, event = {}) {
   finishTransformInteraction();
+  clearPixelSelection();
   if (event.shiftKey && selectionAnchor >= 0) {
     const start = Math.min(selectionAnchor, index);
     const end = Math.max(selectionAnchor, index);
@@ -922,6 +1102,8 @@ function resetVideoStage() {
   sourceImage.classList.remove('loaded');
   setSequenceDisplay(false);
   displayMode = 'video';
+  pixelEditMode = '';
+  clearPixelSelection();
   videoPanel.style.aspectRatio = '16 / 9';
   updateCanvasDisplaySize();
   $('#currentClipName').textContent = '未选择素材';
@@ -964,6 +1146,8 @@ function newProject() {
   clips = [];
   activeClip = -1;
   frames = [];
+  pixelEditMode = '';
+  clearPixelSelection();
   selected = -1;
   selectedIndices = new Set();
   selectionAnchor = -1;
@@ -1530,6 +1714,45 @@ previewOverlay.addEventListener('wheel', (event) => {
   if (transformMode === 'rotate') changeSelectedTransforms((transform) => ({ ...transform, rotate: transform.rotate + amount }), { commitAfterMs: 140 });
   else if (transformMode === 'scale') changeSelectedTransforms((transform) => ({ ...transform, scale: Math.max(1, transform.scale + amount) }), { commitAfterMs: 140 });
 }, { passive: false });
+
+pixelEditOverlay.addEventListener('pointerdown', (event) => {
+  if (!pixelEditMode || displayMode !== 'sequence' || selected < 0 || !frames[selected]) return;
+  event.preventDefault();
+  pixelEditOverlay.setPointerCapture(event.pointerId);
+  const point = pixelPointFromEvent(event);
+  if (pixelEditMode === 'rect') {
+    pixelEditDrag = { pointerId: event.pointerId, start: point, current: point };
+    pixelSelection = normalizePixelRect(point, point);
+  } else {
+    pixelSelection = { type: 'brush', size: Number($('#pixelBrushSize')?.value) || 36, points: [point] };
+    pixelEditDrag = { pointerId: event.pointerId };
+  }
+  updatePixelEditControls();
+});
+pixelEditOverlay.addEventListener('pointermove', (event) => {
+  if (!pixelEditDrag || pixelEditDrag.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  const point = pixelPointFromEvent(event);
+  if (pixelEditMode === 'rect') {
+    pixelEditDrag.current = point;
+    pixelSelection = normalizePixelRect(pixelEditDrag.start, point);
+  } else {
+    const points = pixelSelection?.points || [];
+    const previous = points[points.length - 1];
+    if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 1) points.push(point);
+  }
+  drawPixelSelection();
+  updatePixelEditControls();
+});
+function finishPixelEditPointer(event) {
+  if (!pixelEditDrag || pixelEditDrag.pointerId !== event.pointerId) return;
+  pixelEditDrag = null;
+  try { pixelEditOverlay.releasePointerCapture(event.pointerId); } catch { /* Pointer capture may already be released. */ }
+  updatePixelEditControls();
+}
+pixelEditOverlay.addEventListener('pointerup', finishPixelEditPointer);
+pixelEditOverlay.addEventListener('pointercancel', finishPixelEditPointer);
+
 function applyPreviewFps(nextFps) {
   fps = Math.max(1, Math.min(60, Math.round(Number(nextFps) || 12)));
   const delayMs = Math.round(1000 / fps);
@@ -2269,6 +2492,8 @@ function buildProjectDocument() {
 
 function restoreRuntimeState(state) {
   frames = Array.isArray(state.frames) ? state.frames.map((frame) => FrameModel.create(frame)) : [];
+  pixelEditMode = '';
+  clearPixelSelection();
   fps = Math.max(1, Math.min(60, Number(state.fps) || 12));
   sequenceAnimation = FramePickSequenceAnimation.create(state.sequenceAnimation);
   selectedMotionKeyframeId = sequenceAnimation.keyframes[0]?.id || '';
@@ -2902,6 +3127,18 @@ $('#assetsPopoutBtn').onclick = () => openPanelWindow('assets');
 $('#workspacePopoutBtn').onclick = () => openPanelWindow('workspace');
 $('#sequencePopoutBtn').onclick = () => openPanelWindow('sequence');
 $('#inspectorPopoutBtn').onclick = () => openPanelWindow('inspector');
+$('#pixelRectSelectBtn').onclick = () => setPixelEditMode('rect');
+$('#pixelBrushSelectBtn').onclick = () => setPixelEditMode('brush');
+$('#pixelEraseBtn').onclick = eraseSelectedPixels;
+$('#pixelClearSelectionBtn').onclick = clearPixelSelection;
+$('#pixelBrushSize').oninput = (event) => {
+  const size = Math.max(2, Math.min(240, Number(event.target.value) || 36));
+  $('#pixelBrushSizeValue').textContent = `${size}px`;
+  if (pixelSelection?.type === 'brush') {
+    pixelSelection.size = size;
+    drawPixelSelection();
+  }
+};
 $('#assetsCollapseBtn').onclick = () => setPanelCollapsed('assets', true);
 $('#assetsRestoreTab').onclick = () => setPanelCollapsed('assets', false);
 $('#inspectorCollapseBtn').onclick = () => setPanelCollapsed('inspector', true);
