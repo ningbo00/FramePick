@@ -60,5 +60,17 @@
     };
   }
 
-  global.FramePickExportLayout = { applyTransform, transformedContentBounds, unionBounds, viewportForBounds };
+  function viewportForOutput(bounds, canvasWidth, canvasHeight, outputWidth, outputHeight) {
+    const cropViewport = viewportForBounds(bounds, canvasWidth, canvasHeight);
+    const width = Math.max(1, Math.round(number(outputWidth, bounds.width)));
+    const height = Math.max(1, Math.round(number(outputHeight, bounds.height)));
+    return {
+      width,
+      height,
+      centerX: cropViewport.centerX + (width - bounds.width) / 2,
+      centerY: cropViewport.centerY + (height - bounds.height) / 2
+    };
+  }
+
+  global.FramePickExportLayout = { applyTransform, transformedContentBounds, unionBounds, viewportForBounds, viewportForOutput };
 })(window);

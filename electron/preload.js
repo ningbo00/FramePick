@@ -4,12 +4,23 @@ contextBridge.exposeInMainWorld('framepickDesktop', {
   window: {
     openProject: () => ipcRenderer.invoke('window:open-project'),
     setTitle: (title) => ipcRenderer.invoke('window:set-title', title),
+    setTitleBarTheme: (theme) => ipcRenderer.invoke('window:set-titlebar-theme', theme),
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
     confirmClose: () => ipcRenderer.invoke('window:confirm-close'),
     respondClose: (payload) => ipcRenderer.invoke('window:close-response', payload),
     onCloseRequest: (callback) => {
       const handler = (_event, payload) => callback(payload);
       ipcRenderer.on('window:close-request', handler);
       return () => ipcRenderer.removeListener('window:close-request', handler);
+    }
+  },
+  menu: {
+    onCommand: (callback) => {
+      const handler = (_event, command) => callback(command);
+      ipcRenderer.on('menu:command', handler);
+      return () => ipcRenderer.removeListener('menu:command', handler);
     }
   },
   project: {

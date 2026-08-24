@@ -64,3 +64,30 @@ test('schema v1 projects without sequenceAnimation remain readable', () => {
   assert.equal(validated.sequenceAnimation.keyframes.length, 1);
   assert.equal(validated.sequenceAnimation.keyframes[0].scale, 100);
 });
+
+test('project document preserves imported media references and active clip', () => {
+  const context = loadBrowserModules('renderer/sequence-animation.js', 'renderer/frame-model.js', 'renderer/project-io.js');
+  const documentData = context.FramePickProjectIo.buildDocument({
+    projectName: 'MediaRefs',
+    canvasWidth: 512,
+    canvasHeight: 512,
+    fps: 12,
+    loop: true,
+    sequenceVariant: 'original',
+    media: {
+      activeClip: 1,
+      clips: [
+        { kind: 'video', name: 'shot.mp4', path: 'G:/shots/shot.mp4', duration: 3.5, width: 1920, height: 1080, thumbnail: 'data:image/jpeg;base64,AA==' },
+        { kind: 'image', name: 'poster.png', path: 'G:/shots/poster.png', duration: 0, width: 512, height: 512, thumbnail: 'data:image/jpeg;base64,AA==' }
+      ]
+    },
+    frames: [sampleFrame(context.FrameModel)],
+    assetPathForFrame: context.FramePickProjectIo.assetPathForFrame
+  });
+  const validated = context.FramePickProjectIo.validateDocument(JSON.parse(JSON.stringify(documentData)));
+  assert.equal(validated.media.activeClip, 1);
+  assert.deepEqual(validated.media.clips.map(({ kind, name, path, duration, width, height }) => ({ kind, name, path, duration, width, height })), [
+    { kind: 'video', name: 'shot.mp4', path: 'G:/shots/shot.mp4', duration: 3.5, width: 1920, height: 1080 },
+    { kind: 'image', name: 'poster.png', path: 'G:/shots/poster.png', duration: 0, width: 512, height: 512 }
+  ]);
+});

@@ -16,17 +16,20 @@
     <header class="topbar">
       <div class="brand"><span class="brand-mark">F</span><span>FramePick</span><span class="brand-sub">动画序列工作台</span></div>
       <div class="project-name"><span class="status-dot"></span> <span id="projectName">未命名项目</span> <span class="saved" id="projectStatus">· 未保存</span></div>
-      <div class="top-actions">
-        <button class="ghost-button" id="newProjectBtn" title="新建空白项目">新建项目</button>
-        <button class="ghost-button" id="newProjectWindowBtn" title="在新窗口创建项目">新窗口</button>
-        <button class="ghost-button" id="openProjectLocationBtn" title="在资源管理器中打开项目所在位置">打开项目位置</button>
-        <button class="ghost-button" id="saveProjectBtn">保存</button>
-        <button class="ghost-button" id="saveProjectAsBtn">另存为</button>
-        <div class="import-export-menu-wrap"><button class="ghost-button" id="importExportBtn" type="button" aria-expanded="false" aria-haspopup="true">导入/导出⌄</button><div class="import-export-menu" id="importExportMenu" aria-hidden="true"><button id="menuImportMediaBtn" type="button">导入视频或图片</button><button id="openProjectBtn" type="button">打开项目</button><button id="importSequenceBtn" type="button">导入序列文件夹</button><button id="mediaExportBtn" type="button">导出</button></div></div>
-        <button class="icon-button settings-button" id="settingsBtn" title="设置" aria-label="设置">⚙</button>
-        <input id="projectFileInput" type="file" accept=".fpproj" hidden>
+      <nav class="app-menubar" id="appMenubar" aria-label="应用菜单">
+        <button class="app-menu-trigger" type="button" data-menu="file" aria-expanded="false">文件</button>
+        <button class="app-menu-trigger" type="button" data-menu="edit" aria-expanded="false">编辑</button>
+        <button class="app-menu-trigger" type="button" data-menu="view" aria-expanded="false">查看</button>
+        <button class="app-menu-trigger" type="button" data-menu="window" aria-expanded="false">窗口</button>
+        <div class="app-menu-panel" id="appMenuPanel" role="menu" hidden></div>
+      </nav>
+      <div class="window-controls" aria-label="窗口控制">
+        <button class="window-control" id="windowMinimizeBtn" type="button" title="最小化" aria-label="最小化">−</button>
+        <button class="window-control" id="windowMaximizeBtn" type="button" title="最大化或还原" aria-label="最大化或还原">□</button>
+        <button class="window-control window-close-control" id="windowCloseBtn" type="button" title="关闭窗口" aria-label="关闭窗口">×</button>
       </div>
     </header>
+    <input id="projectFileInput" type="file" accept=".fpproj" hidden>
 
     <main class="workspace">
       <aside class="sidebar">
@@ -41,7 +44,7 @@
       <section class="main-canvas">
         <div class="canvas-toolbar">
           <div class="breadcrumbs"><span>素材库</span><b>/</b><strong id="currentClipName">未选择素材</strong></div>
-          <div class="toolbar-actions"><div class="pixel-edit-tools" role="toolbar" aria-label="像素擦除工具"><button class="tool-button pixel-tool-button" id="pixelRectSelectBtn" type="button" title="框选像素区域">框选</button><button class="tool-button pixel-tool-button" id="pixelBrushSelectBtn" type="button" title="用画笔绘制像素选区">画笔</button><label class="pixel-brush-size" title="画笔选区大小">笔刷 <input id="pixelBrushSize" type="range" min="2" max="240" value="36" step="2" aria-label="画笔选区大小"><output id="pixelBrushSizeValue">36px</output></label><button class="tool-button pixel-tool-button" id="pixelEraseBtn" type="button" title="擦除当前选区" disabled>擦除</button><button class="tool-button pixel-tool-button" id="pixelClearSelectionBtn" type="button" title="清除当前选区" disabled>清除</button></div><div class="guide-tools" role="toolbar" aria-label="画布辅助线"><button class="tool-button guide-tool-button" id="addVerticalGuideBtn" type="button" title="点击画布添加竖向辅助线">＋竖线</button><button class="tool-button guide-tool-button" id="addHorizontalGuideBtn" type="button" title="点击画布添加横向辅助线">＋横线</button><button class="tool-button guide-tool-button" id="toggleGuidesBtn" type="button" title="显示或隐藏全部辅助线">辅助线</button><button class="tool-button guide-tool-button" id="clearGuidesBtn" type="button" title="清除全部辅助线">清空</button></div><div class="display-size-control"><label for="previewSize">画面</label><button class="display-size-step" id="previewSizeMinus" type="button" title="缩小画布视图">−</button><input id="previewSize" type="range" min="10" max="400" value="55" title="调整画布视图缩放，不改变实际像素"><output id="previewSizeValue">55%</output><button class="display-size-step" id="previewSize100" type="button" title="以 100% 显示画布">100%</button><button class="display-size-step" id="previewSizePlus" type="button" title="放大画布视图">＋</button></div><div class="canvas-size-controls canvas-toolbar-size" title="设置序列画布分辨率"><label>画布</label><select id="canvasPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="canvasWidth" type="number" min="1" max="8192" value="1920" aria-label="画布宽度"><span>×</span><input id="canvasHeight" type="number" min="1" max="8192" value="1080" aria-label="画布高度"></div><span class="transform-mode-readout" id="transformModeReadout">W 位移</span></div>
+          <div class="toolbar-actions"><div class="pixel-edit-tools" role="toolbar" aria-label="像素擦除工具"><button class="tool-button pixel-tool-button" id="pixelRectSelectBtn" type="button" title="框选像素区域">框选</button><button class="tool-button pixel-tool-button" id="pixelBrushSelectBtn" type="button" title="用画笔绘制像素选区">画笔</button><label class="pixel-brush-size" title="画笔选区大小">笔刷 <input id="pixelBrushSize" type="range" min="2" max="240" value="36" step="2" aria-label="画笔选区大小"><output id="pixelBrushSizeValue">36px</output></label><button class="tool-button pixel-tool-button" id="pixelEraseBtn" type="button" title="擦除当前选区" disabled>擦除</button><button class="tool-button pixel-tool-button" id="pixelClearSelectionBtn" type="button" title="清除当前选区" disabled>清除</button></div><div class="guide-tools" role="toolbar" aria-label="画布辅助线"><button class="tool-button guide-tool-button" id="addVerticalGuideBtn" type="button" title="点击画布添加竖向辅助线">＋竖线</button><button class="tool-button guide-tool-button" id="addHorizontalGuideBtn" type="button" title="点击画布添加横向辅助线">＋横线</button><button class="tool-button guide-tool-button" id="centerGuidesBtn" type="button" title="自动添加水平和垂直中心辅助线">中心线</button><button class="tool-button guide-tool-button" id="toggleGuidesBtn" type="button" title="显示或隐藏全部辅助线">辅助线</button><button class="tool-button guide-tool-button" id="clearGuidesBtn" type="button" title="清除全部辅助线">清空</button></div><div class="display-size-control"><label for="previewSize">画面</label><button class="display-size-step" id="previewSizeMinus" type="button" title="缩小画布视图">−</button><input id="previewSize" type="range" min="10" max="400" value="55" title="调整画布视图缩放，不改变实际像素"><output id="previewSizeValue">55%</output><button class="display-size-step" id="previewSize100" type="button" title="以 100% 显示画布">100%</button><button class="display-size-step" id="previewSizePlus" type="button" title="放大画布视图">＋</button></div><div class="canvas-size-controls canvas-toolbar-size" title="设置序列画布分辨率"><label>画布</label><select id="canvasPreset"><option value="custom">自定义</option><option value="1920x1080">1920 × 1080</option><option value="1280x720">1280 × 720</option><option value="2048x2048">2048 × 2048</option><option value="4096x4096">4096 × 4096</option><option value="1024x1024">1024 × 1024</option><option value="512x512">512 × 512</option><option value="256x256">256 × 256</option><option value="128x128">128 × 128</option><option value="64x64">64 × 64</option><option value="32x32">32 × 32</option></select><input id="canvasWidth" type="number" min="1" max="8192" value="1920" aria-label="画布宽度"><span>×</span><input id="canvasHeight" type="number" min="1" max="8192" value="1080" aria-label="画布高度"></div><span class="transform-mode-readout" id="transformModeReadout">W 位移</span></div>
         </div>
 
         <div class="capture-stage">
@@ -64,6 +67,15 @@
           <div class="auto-extract-bar"><strong>自动抽帧</strong><label for="autoExtractInterval">间隔 <input id="autoExtractInterval" type="number" min="1" max="9999" step="1" value="2"> 帧</label><button id="autoExtractBtn" type="button">抽取全片</button><output id="autoExtractStatus" aria-live="polite">预计 0 帧</output></div>
           <p class="hint"><span>⌘</span> 点击画面任意位置即可截取&nbsp;&nbsp; <span>←</span><span>→</span> 逐帧浏览</p>
         </div>
+
+        <div
+          class="workspace-splitter"
+          id="workspaceSplitter"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整取帧工作区与序列帧区域高度"
+          title="拖动调整取帧工作区与序列帧区域高度"
+          tabindex="0"></div>
 
         <div class="sequence-section">
           <div class="timeline-header"><span class="timeline-label">序列帧缩略图</span><div class="timeline-header-actions"><label class="timeline-size-control" title="调整序列帧缩略图大小"><span>缩略图</span><input id="timelineSize" type="range" min="56" max="180" value="78" step="2" aria-label="调整序列帧缩略图大小"></label><button class="panel-popout-button" id="sequencePopoutBtn" type="button" title="弹出序列帧窗口" aria-label="弹出序列帧窗口">↗</button></div></div>

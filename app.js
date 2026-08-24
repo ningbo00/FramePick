@@ -60,6 +60,12 @@ let guideCreateMode = '';
 let guideDrag = null;
 let workspaceScale = Number($('#previewSize')?.value) || 55;
 let timelineScale = Number($('#timelineSize')?.value) || 78;
+const SEQUENCE_PANEL_HEIGHT_STORAGE_KEY = 'framepick-sequence-panel-height';
+const SEQUENCE_PANEL_MIN_HEIGHT = 180;
+const CAPTURE_STAGE_MIN_HEIGHT = 220;
+const WORKSPACE_SPLITTER_HEIGHT = 8;
+let sequencePanelHeight = null;
+let sequencePanelResize = null;
 let canvasWidth = initialState.canvasWidth;
 let canvasHeight = initialState.canvasHeight;
 let exportWidth = initialState.exportWidth;
@@ -244,6 +250,100 @@ function updateTimelineScale(value) {
   if (input && Number(input.value) !== timelineScale) input.value = String(timelineScale);
 }
 
+function workspaceSequenceBounds() {
+  const mainCanvas = $('.main-canvas');
+  if (!mainCanvas || panelMode) return null;
+  const mainRect = mainCanvas.getBoundingClientRect();
+  const toolbar = $('.canvas-toolbar');
+  const toolbarHeight = toolbar?.getBoundingClientRect().height || 0;
+  const available = Math.max(0, mainRect.height - toolbarHeight - WORKSPACE_SPLITTER_HEIGHT);
+  const maxHeight = Math.max(0, available - CAPTURE_STAGE_MIN_HEIGHT);
+  const minHeight = Math.min(SEQUENCE_PANEL_MIN_HEIGHT, maxHeight);
+  return { minHeight, maxHeight };
+}
+
+function setSequencePanelHeight(value, persist = true) {
+  const bounds = workspaceSequenceBounds();
+  if (!bounds) return;
+  const fallback = bounds.maxHeight > bounds.minHeight
+    ? Math.round(Math.min(bounds.maxHeight, Math.max(bounds.minHeight, bounds.maxHeight * 0.42)))
+    : bounds.minHeight;
+  const numericValue = Number(value);
+  const nextHeight = Math.round(Math.max(bounds.minHeight, Math.min(bounds.maxHeight, Number.isFinite(numericValue) ? numericValue : fallback)));
+  sequencePanelHeight = nextHeight;
+  document.body.style.setProperty('--sequence-panel-height', `${nextHeight}px`);
+  const splitter = $('#workspaceSplitter');
+  if (splitter) {
+    splitter.setAttribute('aria-valuemin', String(Math.round(bounds.minHeight)));
+    splitter.setAttribute('aria-valuemax', String(Math.round(bounds.maxHeight)));
+    splitter.setAttribute('aria-valuenow', String(nextHeight));
+  }
+  if (persist) {
+    try { localStorage.setItem(SEQUENCE_PANEL_HEIGHT_STORAGE_KEY, String(nextHeight)); } catch { /* Storage is optional. */ }
+  }
+}
+
+function initializeSequencePanelHeight() {
+  const bounds = workspaceSequenceBounds();
+  if (!bounds) return;
+  let rememberedHeight = null;
+  try {
+    const stored = Number(localStorage.getItem(SEQUENCE_PANEL_HEIGHT_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored > 0) rememberedHeight = stored;
+  } catch { /* Storage is optional. */ }
+  setSequencePanelHeight(rememberedHeight, false);
+}
+
+function moveSequencePanelResize(event) {
+  if (!sequencePanelResize) return;
+  const mainCanvas = $('.main-canvas');
+  if (!mainCanvas) return;
+  const mainRect = mainCanvas.getBoundingClientRect();
+  setSequencePanelHeight(mainRect.bottom - event.clientY, false);
+}
+
+function finishSequencePanelResize() {
+  if (!sequencePanelResize) return;
+  window.removeEventListener('pointermove', moveSequencePanelResize);
+  window.removeEventListener('pointerup', finishSequencePanelResize);
+  window.removeEventListener('pointercancel', finishSequencePanelResize);
+  $('#workspaceSplitter')?.classList.remove('is-dragging');
+  document.body.classList.remove('is-resizing-workspace');
+  setSequencePanelHeight(sequencePanelHeight, true);
+  sequencePanelResize = null;
+}
+
+const workspaceSplitter = $('#workspaceSplitter');
+workspaceSplitter?.addEventListener('pointerdown', (event) => {
+  const detachedPanelList = document.body.dataset.detachedPanels?.split(/\s+/) || [];
+  if (panelMode || (event.pointerType === 'mouse' && event.button !== 0) || detachedPanelList.includes('workspace') || detachedPanelList.includes('sequence')) return;
+  event.preventDefault();
+  sequencePanelResize = { pointerId: event.pointerId };
+  workspaceSplitter.classList.add('is-dragging');
+  document.body.classList.add('is-resizing-workspace');
+  workspaceSplitter.setPointerCapture?.(event.pointerId);
+  moveSequencePanelResize(event);
+  window.addEventListener('pointermove', moveSequencePanelResize);
+  window.addEventListener('pointerup', finishSequencePanelResize, { once: true });
+  window.addEventListener('pointercancel', finishSequencePanelResize, { once: true });
+});
+workspaceSplitter?.addEventListener('keydown', (event) => {
+  if (panelMode) return;
+  const bounds = workspaceSequenceBounds();
+  if (!bounds) return;
+  let nextHeight = sequencePanelHeight;
+  if (event.key === 'ArrowUp') nextHeight += 24;
+  else if (event.key === 'ArrowDown') nextHeight -= 24;
+  else if (event.key === 'Home') nextHeight = bounds.maxHeight;
+  else if (event.key === 'End') nextHeight = bounds.minHeight;
+  else return;
+  event.preventDefault();
+  setSequencePanelHeight(nextHeight, true);
+});
+window.addEventListener('resize', () => {
+  if (!panelMode && sequencePanelHeight !== null) setSequencePanelHeight(sequencePanelHeight, false);
+});
+
 function historyDocument() {
   return JSON.stringify({ fps, sequenceVariant, sequenceAnimation, canvasWidth, canvasHeight, loop: Boolean($('#loopToggle')?.classList.contains('active')), frames, guides, guidesVisible });
 }
@@ -342,6 +442,7 @@ function applyTheme(theme) {
   document.body.dataset.theme = nextTheme;
   const selector = $('#themeSelect');
   if (selector) selector.value = nextTheme;
+  window.framepickDesktop?.window?.setTitleBarTheme?.(nextTheme);
   try { localStorage.setItem('framepick-theme', nextTheme); } catch { /* Browser privacy mode may block storage. */ }
 }
 
@@ -593,6 +694,18 @@ function positionGuideLine(element, guide) {
   else element.style.top = `${(guide.position / Math.max(1, canvasHeight)) * 100}%`;
 }
 
+function guidePositionLabel(guide) {
+  const position = Number(guide.position) || 0;
+  const formattedPosition = Number.isInteger(position) ? String(position) : position.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${guide.orientation === 'vertical' ? '列' : '行'} ${formattedPosition} px`;
+}
+
+function updateGuideLabel(element, guide) {
+  const label = element.querySelector('.guide-label');
+  if (label) label.textContent = guidePositionLabel(guide);
+  element.title = `${guidePositionLabel(guide)}；拖动调整，双击删除`;
+}
+
 function removeGuide(id) {
   const index = guides.findIndex((guide) => guide.id === id);
   if (index < 0) return;
@@ -612,8 +725,10 @@ function startGuideDrag(event, guide, element) {
 function moveGuideDrag(event) {
   if (!guideDrag || guideDrag.pointerId !== event.pointerId) return;
   const point = guidePointFromEvent(event);
-  guideDrag.guide.position = Math.max(0, Math.min(guideLimit(guideDrag.guide.orientation), guideDrag.guide.orientation === 'vertical' ? point.x : point.y));
+  const position = guideDrag.guide.orientation === 'vertical' ? point.x : point.y;
+  guideDrag.guide.position = Math.round(Math.max(0, Math.min(guideLimit(guideDrag.guide.orientation), position)));
   positionGuideLine(guideDrag.element, guideDrag.guide);
+  updateGuideLabel(guideDrag.element, guideDrag.guide);
 }
 
 function finishGuideDrag(event) {
@@ -641,7 +756,11 @@ function renderGuides() {
     const element = document.createElement('div');
     element.className = `guide-line guide-${guide.orientation}`;
     element.dataset.guideId = guide.id;
-    element.title = `${guide.orientation === 'vertical' ? '竖向' : '横向'}辅助线，拖动调整；双击删除`;
+    const label = document.createElement('span');
+    label.className = 'guide-label';
+    label.setAttribute('aria-hidden', 'true');
+    element.append(label);
+    updateGuideLabel(element, guide);
     positionGuideLine(element, guide);
     element.addEventListener('pointerdown', (event) => startGuideDrag(event, guide, element));
     element.addEventListener('pointermove', moveGuideDrag);
@@ -651,6 +770,30 @@ function renderGuides() {
     element.addEventListener('contextmenu', (event) => { event.preventDefault(); removeGuide(guide.id); });
     guideOverlay.append(element);
   });
+}
+
+function centerGuides() {
+  if (displayMode !== 'sequence' || !frames.length) return showToast('请先进入序列编辑后添加中心辅助线');
+  const centers = [
+    { orientation: 'vertical', position: canvasWidth / 2 },
+    { orientation: 'horizontal', position: canvasHeight / 2 }
+  ];
+  let added = 0;
+  centers.forEach(({ orientation, position }) => {
+    const exists = guides.some((guide) => guide.orientation === orientation && Math.abs(Number(guide.position) - position) < 0.5);
+    if (exists) return;
+    const guide = FramePickGuides.create(orientation, Math.round(position), canvasWidth, canvasHeight);
+    if (guide) {
+      guides.push(guide);
+      added += 1;
+    }
+  });
+  renderGuides();
+  if (added) {
+    markProjectDirty();
+    schedulePanelStateSync();
+    showToast(added === 2 ? '已添加水平和垂直中心辅助线' : '已补齐中心辅助线');
+  } else showToast('中心辅助线已存在');
 }
 
 function setGuideCreateMode(mode) {
@@ -667,7 +810,8 @@ function setGuideCreateMode(mode) {
 function addGuideAtEvent(event) {
   if (!guideCreateMode || displayMode !== 'sequence') return;
   const point = guidePointFromEvent(event);
-  const guide = FramePickGuides.create(guideCreateMode, guideCreateMode === 'vertical' ? point.x : point.y, canvasWidth, canvasHeight);
+  const position = guideCreateMode === 'vertical' ? point.x : point.y;
+  const guide = FramePickGuides.create(guideCreateMode, Math.round(position), canvasWidth, canvasHeight);
   if (!guide) return;
   guides.push(guide);
   renderGuides();
@@ -1151,17 +1295,31 @@ function moveSelectedFrames(targetPosition) {
   showToast(movingFrames.length > 1 ? `已移动 ${movingFrames.length} 帧` : '序列顺序已更新');
 }
 
+function importedFilePath(file) {
+  return window.framepickDesktop?.system?.getPathForFile?.(file) || file?.path || '';
+}
+
+function filePathToUrl(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  if (!normalized) return '';
+  if (/^file:\/\//i.test(normalized)) return normalized;
+  const segments = normalized.split('/').map((segment, index) => index === 0 && /^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment));
+  const encoded = segments.join('/');
+  return normalized.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`;
+}
+
 function readImageClip(file) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     const url = URL.createObjectURL(file);
+    const filePath = importedFilePath(file);
     image.onload = () => {
       const scale = Math.min(1, 320 / image.naturalWidth);
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
       canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-      resolve({ file, url, kind: 'image', name: file.name, duration: 0, width: image.naturalWidth, height: image.naturalHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.82) });
+      resolve({ file, url, filePath, kind: 'image', name: file.name, duration: 0, width: image.naturalWidth, height: image.naturalHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.82) });
     };
     image.onerror = () => { URL.revokeObjectURL(url); reject(new Error(file.name)); };
     image.src = url;
@@ -1173,6 +1331,7 @@ function readClip(file) {
   return new Promise((resolve, reject) => {
     const probe = document.createElement('video');
     const url = URL.createObjectURL(file);
+    const filePath = importedFilePath(file);
     probe.preload = 'metadata';
     probe.muted = true;
     probe.onloadedmetadata = () => { probe.currentTime = Math.min(0.1, Math.max(0, probe.duration / 20)); };
@@ -1182,7 +1341,7 @@ function readClip(file) {
       canvas.width = Math.max(1, Math.round(probe.videoWidth * scale));
       canvas.height = Math.max(1, Math.round(probe.videoHeight * scale));
       canvas.getContext('2d').drawImage(probe, 0, 0, canvas.width, canvas.height);
-      resolve({ file, url, kind: 'video', name: file.name, duration: probe.duration, width: probe.videoWidth, height: probe.videoHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.72) });
+      resolve({ file, url, filePath, kind: 'video', name: file.name, duration: probe.duration, width: probe.videoWidth, height: probe.videoHeight, thumbnail: canvas.toDataURL('image/jpeg', 0.72) });
     };
     probe.onerror = () => { URL.revokeObjectURL(url); reject(new Error(file.name)); };
     probe.src = url;
@@ -1312,7 +1471,7 @@ function newProject() {
 
 async function openClipLocation(index) {
   const clip = clips[index];
-  const path = clip?.file?.path || clip?.file?.webkitRelativePath;
+  const path = clip?.filePath || clip?.file?.path || clip?.file?.webkitRelativePath;
   if (!path || path.includes('/') && !/^[A-Za-z]:[\\/]/.test(path)) {
     return showToast('浏览器未提供本地路径，无法打开资产所在位置');
   }
@@ -1365,11 +1524,12 @@ async function importFiles(fileList) {
 function loadClip(index, options = {}) {
   const clip = clips[index];
   if (!clip) return;
-  if (panelMode && !clip.url) {
+  if (!clip.url) {
     activeClip = index;
     $('#currentClipName').textContent = clip.name || '未选择素材';
     renderClips();
     schedulePanelStateSync();
+    if (!options.silent) showToast(`素材引用不可用：${clip.name || '未命名素材'}`);
     return;
   }
   const preserveSequence = Boolean(options.preserveSequence && selected >= 0 && frames[selected]);
@@ -1988,7 +2148,6 @@ $('#aiModalClose').onclick = closeAiModal;
 $('#aiCancelBtn').onclick = closeAiModal;
 $('#aiStartBtn').onclick = runBatchBackgroundRemoval;
 aiModal.addEventListener('click', (event) => { if (event.target === aiModal) closeAiModal(); });
-$('#settingsBtn').onclick = openSettings;
 $('#settingsClose').onclick = closeSettings;
 $('#settingsDone').onclick = closeSettings;
 $('#themeSelect').onchange = (event) => applyTheme(event.target.value);
@@ -2029,6 +2188,9 @@ async function handleCloseRequest({ requestId } = {}) {
 }
 
 window.framepickDesktop?.window?.onCloseRequest?.(handleCloseRequest);
+$('#windowMinimizeBtn')?.addEventListener('click', () => window.framepickDesktop?.window?.minimize?.());
+$('#windowMaximizeBtn')?.addEventListener('click', () => window.framepickDesktop?.window?.toggleMaximize?.());
+$('#windowCloseBtn')?.addEventListener('click', () => window.framepickDesktop?.window?.close?.());
 $('#canvasPreset').onchange = (event) => {
   const value = event.target.value;
   if (value === 'custom') return;
@@ -2660,11 +2822,31 @@ function assetPathForFrame(index, variant) {
   return FramePickProjectIo.assetPathForFrame(index, variant);
 }
 
+function projectMediaReferences() {
+  return {
+    activeClip,
+    clips: clips.map((clip) => ({
+      kind: clip.kind,
+      name: clip.name,
+      path: clip.filePath || clip.file?.path || '',
+      duration: Number(clip.duration) || 0,
+      width: Number(clip.width) || 1,
+      height: Number(clip.height) || 1,
+      thumbnail: clip.thumbnail || ''
+    }))
+  };
+}
+
 function buildProjectDocument() {
-  return FramePickProjectIo.buildDocument({ projectName: projectNameWithoutExtension(), canvasWidth, canvasHeight, fps, loop: Boolean($('#loopToggle')?.classList.contains('active')), sequenceVariant, sequenceAnimation, guides, guidesVisible, frames, assetPathForFrame });
+  return FramePickProjectIo.buildDocument({ projectName: projectNameWithoutExtension(), canvasWidth, canvasHeight, fps, loop: Boolean($('#loopToggle')?.classList.contains('active')), sequenceVariant, sequenceAnimation, guides, guidesVisible, frames, assetPathForFrame, media: projectMediaReferences() });
 }
 
 function restoreRuntimeState(state) {
+  if (Array.isArray(state.clips)) {
+    clips.forEach((clip) => { if (clip.url?.startsWith?.('blob:')) URL.revokeObjectURL(clip.url); });
+    clips = state.clips;
+    activeClip = Number.isInteger(state.activeClip) && state.activeClip >= 0 && state.activeClip < clips.length ? state.activeClip : (clips.length ? 0 : -1);
+  }
   frames = Array.isArray(state.frames) ? state.frames.map((frame) => FrameModel.create(frame)) : [];
   pixelEditMode = '';
   clearPixelSelection();
@@ -2689,6 +2871,9 @@ function restoreRuntimeState(state) {
   selectedIndices = selected >= 0 ? new Set([selected]) : new Set();
   selectionAnchor = selected;
   stopPreview();
+  renderClips();
+  if (activeClip >= 0 && clips[activeClip]) loadClip(activeClip, { preserveSequence: selected >= 0, silent: true });
+  else resetVideoStage();
   renderTimeline();
   updateInspector();
   if (selected >= 0) renderSequenceInMainWindow();
@@ -2699,6 +2884,15 @@ function restoreRuntimeState(state) {
 
 function assertTransform(transform, label) {
   return FramePickProjectIo.validateTransform(transform, label);
+}
+
+function restoreProjectMedia(media) {
+  return (media?.clips || []).map((clip) => ({
+    ...clip,
+    file: null,
+    filePath: clip.path || '',
+    url: filePathToUrl(clip.path)
+  }));
 }
 
 async function restoreProjectDocument(documentData, projectPath) {
@@ -2719,7 +2913,7 @@ async function restoreProjectDocument(documentData, projectPath) {
     restored.push(FrameModel.fromProjectEntry(entry, { original: original.data, ai: aiImage }, documentData.canvas));
   }
   projectFileName = `${projectName}.fpproj`;
-  restoreRuntimeState({ frames: restored, fps: Number(documentData.playback.fps), canvasWidth: documentData.canvas.width, canvasHeight: documentData.canvas.height, sequenceVariant: documentData.sequenceVariant, sequenceAnimation: validated.sequenceAnimation, guides: validated.guides, guidesVisible: validated.guidesVisible, loop: documentData.playback.loop });
+  restoreRuntimeState({ clips: restoreProjectMedia(validated.media), activeClip: validated.media.activeClip, frames: restored, fps: Number(documentData.playback.fps), canvasWidth: documentData.canvas.width, canvasHeight: documentData.canvas.height, sequenceVariant: documentData.sequenceVariant, sequenceAnimation: validated.sequenceAnimation, guides: validated.guides, guidesVisible: validated.guidesVisible, loop: documentData.playback.loop });
 }
 
 async function buildProjectPayload() {
@@ -2733,12 +2927,18 @@ async function buildProjectPayload() {
   return { data: JSON.stringify(documentData, null, 2), assets, sequence: { manifest: sequence.manifest, files: sequence.files } };
 }
 
+function setProjectSaveControlsDisabled(disabled) {
+  ['saveProjectBtn', 'saveProjectAsBtn'].forEach((id) => {
+    const control = $(`#${id}`);
+    if (control) control.disabled = disabled;
+  });
+}
+
 async function saveProjectAs() {
   if (window.framepickDesktop?.project?.saveAs) {
     if (projectSaving) { showToast('项目正在保存，请稍候'); return false; }
     projectSaving = true;
-    $('#saveProjectBtn').disabled = true;
-    $('#saveProjectAsBtn').disabled = true;
+    setProjectSaveControlsDisabled(true);
     try {
       showToast('正在准备完整项目快照…');
       const result = await window.framepickDesktop.project.saveAs({ fileName: projectFileName, ...await buildProjectPayload() });
@@ -2757,8 +2957,7 @@ async function saveProjectAs() {
       return false;
     } finally {
       projectSaving = false;
-      $('#saveProjectBtn').disabled = false;
-      $('#saveProjectAsBtn').disabled = false;
+      setProjectSaveControlsDisabled(false);
     }
     return;
   }
@@ -2770,8 +2969,7 @@ async function saveProject() {
   if (window.framepickDesktop?.project?.write && projectFilePath) {
     if (projectSaving) { showToast('项目正在保存，请稍候'); return false; }
     projectSaving = true;
-    $('#saveProjectBtn').disabled = true;
-    $('#saveProjectAsBtn').disabled = true;
+    setProjectSaveControlsDisabled(true);
     try {
       showToast('正在准备完整项目快照…');
       const result = await window.framepickDesktop.project.write({ filePath: projectFilePath, ...await buildProjectPayload() });
@@ -2785,8 +2983,7 @@ async function saveProject() {
       return false;
     } finally {
       projectSaving = false;
-      $('#saveProjectBtn').disabled = false;
-      $('#saveProjectAsBtn').disabled = false;
+      setProjectSaveControlsDisabled(false);
     }
     return;
   }
@@ -2936,7 +3133,7 @@ async function transformedSequenceLayout(entries) {
   };
 }
 
-async function buildSequenceSnapshot(entries = exportableFrameEntries()) {
+async function buildSequenceSnapshot(entries = exportableFrameEntries(), outputSize = null) {
   let layout;
   if (entries.length) layout = await transformedSequenceLayout(entries);
   else {
@@ -2946,6 +3143,16 @@ async function buildSequenceSnapshot(entries = exportableFrameEntries()) {
       viewport: FramePickExportLayout.viewportForBounds(emptyBounds, canvasWidth, canvasHeight),
       sourceCanvas: { width: canvasWidth, height: canvasHeight },
       contentBounds: { x: 0, y: 0, width: 1, height: 1 }
+    };
+  }
+  if (outputSize) {
+    const outputWidth = Math.max(1, Math.min(32767, Number(outputSize.width) || layout.width));
+    const outputHeight = Math.max(1, Math.min(32767, Number(outputSize.height) || layout.height));
+    layout = {
+      ...layout,
+      width: outputWidth,
+      height: outputHeight,
+      viewport: FramePickExportLayout.viewportForOutput(layout, canvasWidth, canvasHeight, outputWidth, outputHeight)
     };
   }
   const files = {};
@@ -2973,7 +3180,7 @@ async function exportSequence() {
   }
   let snapshot;
   try {
-    snapshot = await buildSequenceSnapshot(entries);
+    snapshot = await buildSequenceSnapshot(entries, { width: exportWidth, height: exportHeight });
   } catch (error) {
     showToast(`导出失败：${error.message}`);
     return { ok: false, error: error.message };
@@ -3241,43 +3448,115 @@ async function exportMedia() {
   } finally { $('#mediaExportStart').disabled = false; }
 }
 
-$('#newProjectBtn').onclick = newProject;
-$('#newProjectWindowBtn').onclick = async () => {
+async function openNewProjectWindow() {
   if (!window.framepickDesktop?.window?.openProject) return showToast('新窗口仅支持桌面版');
   const result = await window.framepickDesktop.window.openProject();
   if (!result?.ok) showToast(`无法创建新项目窗口：${result?.error || '未知错误'}`);
-};
-const importExportButton = $('#importExportBtn');
-const importExportMenu = $('#importExportMenu');
-function closeImportExportMenu() {
-  importExportMenu.classList.remove('open');
-  importExportMenu.setAttribute('aria-hidden', 'true');
-  importExportButton.setAttribute('aria-expanded', 'false');
 }
-importExportButton.onclick = (event) => {
-  event.stopPropagation();
-  const open = !importExportMenu.classList.contains('open');
-  importExportMenu.classList.toggle('open', open);
-  importExportMenu.setAttribute('aria-hidden', String(!open));
-  importExportButton.setAttribute('aria-expanded', String(open));
-};
-importExportMenu.addEventListener('click', (event) => {
-  if (event.target.closest('button')) closeImportExportMenu();
-});
-$('#menuImportMediaBtn').onclick = () => $('#importBtn').click();
-document.addEventListener('click', (event) => {
-  if (!event.target.closest('.import-export-menu-wrap')) closeImportExportMenu();
-});
-$('#openProjectBtn').onclick = openProject;
-$('#openProjectLocationBtn').onclick = openProjectLocation;
-$('#saveProjectBtn').onclick = saveProject;
-$('#saveProjectAsBtn').onclick = saveProjectAs;
 function openMediaExport() {
   if (exportFollowsCanvas) updateExportResolution(canvasWidth, canvasHeight, true);
   $('#mediaExportModal').classList.add('open');
   $('#mediaExportModal').setAttribute('aria-hidden', 'false');
 }
-$('#mediaExportBtn').onclick = openMediaExport;
+
+function handleMenuCommand(command) {
+  const actions = {
+    'new-project': newProject,
+    'new-project-window': openNewProjectWindow,
+    'open-project': openProject,
+    'open-project-location': openProjectLocation,
+    'save-project': saveProject,
+    'save-project-as': saveProjectAs,
+    'import-media': () => $('#importBtn')?.click(),
+    'import-sequence': importSequenceFolder,
+    'media-export': openMediaExport,
+    undo: undoProjectChange,
+    redo: redoProjectChange,
+    'select-all': selectAllFrames,
+    'open-assets-panel': () => openPanelWindow('assets'),
+    'open-workspace-panel': () => openPanelWindow('workspace'),
+    'open-sequence-panel': () => openPanelWindow('sequence'),
+    'open-inspector-panel': () => openPanelWindow('inspector'),
+    settings: openSettings
+  };
+  const action = actions[command];
+  if (typeof action === 'function') action();
+}
+
+const appMenuDefinitions = {
+  file: [
+    ['新建项目', 'new-project'],
+    ['新窗口', 'new-project-window'],
+    ['打开项目', 'open-project'],
+    ['打开项目位置', 'open-project-location'],
+    '|',
+    ['保存', 'save-project'],
+    ['另存为', 'save-project-as'],
+    '|',
+    ['导入视频或图片', 'import-media'],
+    ['导入序列文件夹', 'import-sequence'],
+    ['导出', 'media-export']
+  ],
+  edit: [
+    ['撤销', 'undo'],
+    ['重做', 'redo'],
+    '|',
+    ['全选序列帧', 'select-all']
+  ],
+  view: [
+    ['设置', 'settings']
+  ],
+  window: [
+    ['新窗口', 'new-project-window'],
+    ['素材库窗口', 'open-assets-panel'],
+    ['取帧工作区窗口', 'open-workspace-panel'],
+    ['序列帧窗口', 'open-sequence-panel'],
+    ['属性窗口', 'open-inspector-panel']
+  ]
+};
+
+function closeAppMenu() {
+  const panel = $('#appMenuPanel');
+  if (panel) panel.hidden = true;
+  document.querySelectorAll('.app-menu-trigger').forEach((button) => button.setAttribute('aria-expanded', 'false'));
+}
+
+function openAppMenu(name, trigger) {
+  const panel = $('#appMenuPanel');
+  const items = appMenuDefinitions[name];
+  if (!panel || !items) return;
+  if (!panel.hidden && trigger.getAttribute('aria-expanded') === 'true') {
+    closeAppMenu();
+    return;
+  }
+  panel.innerHTML = items.map((item) => item === '|'
+    ? '<div class="app-menu-divider" role="separator"></div>'
+    : `<button class="app-menu-item" type="button" role="menuitem" data-command="${item[1]}">${item[0]}</button>`).join('');
+  panel.hidden = false;
+  document.querySelectorAll('.app-menu-trigger').forEach((button) => button.setAttribute('aria-expanded', String(button === trigger)));
+}
+
+$('#appMenubar')?.addEventListener('click', (event) => {
+  const trigger = event.target.closest('.app-menu-trigger');
+  if (trigger) {
+    event.stopPropagation();
+    openAppMenu(trigger.dataset.menu, trigger);
+    return;
+  }
+  const item = event.target.closest('.app-menu-item');
+  if (item) {
+    closeAppMenu();
+    handleMenuCommand(item.dataset.command);
+  }
+});
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('#appMenubar')) closeAppMenu();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeAppMenu();
+});
+
+window.framepickDesktop?.menu?.onCommand?.(handleMenuCommand);
 $('#mediaExportClose').onclick = () => { $('#mediaExportModal').classList.remove('open'); $('#mediaExportModal').setAttribute('aria-hidden', 'true'); };
 $('#mediaExportStart').onclick = exportMedia;
 $('#mediaExportFormat').onchange = (event) => {
@@ -3286,10 +3565,10 @@ $('#mediaExportFormat').onchange = (event) => {
   const pluginExport = exportPluginFormats.get(format);
   $('#spriteGridSettings').style.display = format === 'sprite' ? 'flex' : 'none';
   renderPluginExportSettings(format);
-  $('#exportResolutionSettings').style.display = isPngSequence || pluginExport?.format.usesResolution === false ? 'none' : 'flex';
+  $('#exportResolutionSettings').style.display = pluginExport?.format.usesResolution === false ? 'none' : 'flex';
   $('#mediaExportFormatHint').textContent = pluginExport?.format.hint
     || (isPngSequence
-      ? '逐帧导出最终效果，并附带可重新导入的序列数据'
+      ? '按导出分辨率逐帧生成最终效果，并附带可重新导入的序列数据'
       : format === 'sprite'
       ? '把最终序列逐帧排入一张透明 PNG 大图；整图曲线不烘焙'
       : '使用实际帧停留时长生成动画；整图曲线不烘焙');
@@ -3307,8 +3586,6 @@ $('#exportPreset').onchange = (event) => {
     updateExportResolution($('#exportWidth').value, $('#exportHeight').value, false);
   };
 });
-$('#importSequenceBtn').onclick = importSequenceFolder;
-
 $('#assetsPopoutBtn').onclick = () => openPanelWindow('assets');
 $('#workspacePopoutBtn').onclick = () => openPanelWindow('workspace');
 $('#sequencePopoutBtn').onclick = () => openPanelWindow('sequence');
@@ -3327,6 +3604,7 @@ $('#pixelBrushSize').oninput = (event) => {
 };
 $('#addVerticalGuideBtn').onclick = () => setGuideCreateMode('vertical');
 $('#addHorizontalGuideBtn').onclick = () => setGuideCreateMode('horizontal');
+$('#centerGuidesBtn').onclick = centerGuides;
 $('#toggleGuidesBtn').onclick = () => {
   guidesVisible = !guidesVisible;
   guideCreateMode = '';
@@ -3368,6 +3646,7 @@ let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('framepick-theme') || 'dark'; } catch { /* Use the requested dark default. */ }
 applyTheme(savedTheme);
 updateTimelineScale(timelineScale);
+initializeSequencePanelHeight();
 
 if (panelMode) {
   window.framepickDesktop?.panels?.requestState?.();

@@ -32,3 +32,12 @@ test('export layout uses visible alpha bounds and preserves rotation extent', ()
   assert.equal(union.width, 20);
   assert.equal(union.height, 50);
 });
+
+test('output viewport centers the transformed content at the requested resolution', () => {
+  const { FramePickExportLayout: layout } = loadBrowserModules('renderer/export-layout.js');
+  const bounds = { minX: 60, minY: 75, maxX: 160, maxY: 125, width: 100, height: 50 };
+  assert.deepEqual(
+    { ...layout.viewportForOutput(bounds, 200, 200, 320, 180) },
+    { width: 320, height: 180, centerX: 150, centerY: 90 }
+  );
+});

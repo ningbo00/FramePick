@@ -31,6 +31,10 @@
 .guide-vertical::after{top:0;bottom:0;left:5px;border-left-width:1px}
 .guide-horizontal{left:0;right:0;height:11px;margin-top:-5px;cursor:ns-resize}
 .guide-horizontal::after{left:0;right:0;top:5px;border-top-width:1px}
+.guide-label{position:absolute;z-index:2;pointer-events:none;display:block;padding:2px 5px;border:1px solid color-mix(in srgb,var(--orange) 72%,var(--line));border-radius:3px;background:var(--orange);color:#fff;font:600 10px/1.2 'DM Mono';white-space:nowrap;box-shadow:0 2px 6px #0005;text-shadow:0 1px 1px #0005}
+.guide-vertical .guide-label{left:8px;top:4px}
+.guide-horizontal .guide-label{left:8px;top:8px}
+body[data-theme="dark"] .guide-label{color:#171717;text-shadow:none}
 .onion-overlay{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:transparent;pointer-events:none;z-index:4}
 .onion-overlay.active{display:block}
 .onion-prev-overlay{opacity:.28;filter:sepia(1) saturate(4) hue-rotate(315deg)}
@@ -273,3 +277,379 @@ body[data-panel="sequence"] .timeline-footer{flex:0 0 auto}
 .auto-extract-bar strong{color:var(--ink);font-size:13px;white-space:nowrap}.auto-extract-bar label{display:flex;align-items:center;gap:6px;white-space:nowrap}.auto-extract-bar input{width:66px;height:28px;padding:0 7px;border:1px solid var(--line);border-radius:4px;background:var(--paper);color:var(--ink);font:13px 'DM Mono';text-align:center}.auto-extract-bar button{height:28px;padding:0 11px;border:1px solid var(--green);border-radius:4px;background:var(--green);color:#fff;font:600 13px Manrope;cursor:pointer;white-space:nowrap}.auto-extract-bar button:hover{filter:brightness(1.08)}.auto-extract-bar button.is-running{border-color:var(--orange);background:var(--orange)}.auto-extract-bar output{margin-left:auto;color:var(--muted);font:12px 'DM Mono';white-space:nowrap}.auto-extract-bar input:disabled,.transport button:disabled,.transport input:disabled,.capture-fab:disabled{cursor:not-allowed;opacity:.5}
 body[data-theme="dark"] .auto-extract-bar{background:#242424;border-color:#484848}body[data-theme="dark"] .auto-extract-bar input{background:#2b2b2b;border-color:#535353;color:#eee}
 @media (max-width:720px){.auto-extract-bar{flex-wrap:wrap}.auto-extract-bar output{width:100%;margin-left:0}.auto-extract-bar button{margin-left:auto}}
+
+/* The project window uses the client area as its title bar, including its
+   window controls and application menu. */
+body:not([data-panel]) .topbar{position:relative;z-index:10;min-width:0;padding-right:154px;-webkit-app-region:drag;user-select:none}
+body:not([data-panel]) .topbar>*{-webkit-app-region:drag}
+body:not([data-panel]) .brand,body:not([data-panel]) .project-name{min-width:0}
+body:not([data-panel]) .project-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body:not([data-panel]) .project-name{flex:0 1 520px}
+body:not([data-panel]) .app-menubar{position:relative;display:flex;align-items:center;gap:2px;margin-left:18px;-webkit-app-region:no-drag}
+body:not([data-panel]) .app-menu-trigger{height:30px;padding:0 10px;border:0;border-radius:4px;background:transparent;color:var(--muted);font:12px Manrope;cursor:pointer;-webkit-app-region:no-drag}
+body:not([data-panel]) .app-menu-trigger:hover,body:not([data-panel]) .app-menu-trigger[aria-expanded="true"]{background:var(--soft);color:var(--ink)}
+body:not([data-panel]) .app-menu-panel{position:absolute;top:36px;left:0;z-index:1000;min-width:188px;padding:5px;background:var(--panel);border:1px solid var(--line);border-radius:6px;box-shadow:0 12px 30px #0008;-webkit-app-region:no-drag}
+body:not([data-panel]) .app-menu-panel[hidden]{display:none}
+body:not([data-panel]) .app-menu-item{display:block;width:100%;height:32px;padding:0 11px;border:0;border-radius:4px;background:transparent;color:var(--ink);font:11px Manrope;text-align:left;cursor:pointer;white-space:nowrap;-webkit-app-region:no-drag}
+body:not([data-panel]) .app-menu-item:hover{background:var(--soft);color:var(--orange)}
+body:not([data-panel]) .app-menu-divider{height:1px;margin:5px 4px;background:var(--line)}
+body:not([data-panel]) .window-controls{position:absolute;top:0;right:8px;height:70px;display:flex;align-items:center;gap:2px;-webkit-app-region:no-drag}
+body:not([data-panel]) .window-control{width:30px;height:30px;padding:0;border:0;border-radius:4px;background:transparent;color:var(--muted);font:16px/1 Manrope;cursor:pointer;-webkit-app-region:no-drag}
+.window-control:hover{background:var(--soft);color:var(--ink)}
+.window-close-control{font-size:20px}
+.window-close-control:hover{background:#b4483f;color:#fff}
+body[data-theme="dark"] .window-control:hover{background:#333;color:#fff}
+body[data-theme="dark"] .window-close-control:hover{background:#b4483f;color:#fff}
+@media (max-width:1100px){body:not([data-panel]) .project-name{flex-basis:260px}body:not([data-panel]) .app-menubar{margin-left:8px}}
+@media (max-width:720px){body:not([data-panel]) .topbar{padding-right:112px}body:not([data-panel]) .project-name{flex-basis:150px}body:not([data-panel]) .app-menu-trigger{padding:0 6px;font-size:11px}}
+
+/* Keep the browser viewport fixed; long panel content scrolls inside its owner. */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app-shell {
+  width: 100%;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not([data-panel]) .workspace {
+  height: calc(100vh - 70px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not([data-panel]) .workspace > * {
+  min-height: 0;
+}
+
+body:not([data-panel]) .sidebar,
+body:not([data-panel]) .inspector {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body:not([data-panel]) .main-canvas {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not([data-panel]) .canvas-toolbar,
+body:not([data-panel]) .sequence-section {
+  flex: 0 0 auto;
+}
+
+body:not([data-panel]) .capture-stage {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not([data-panel]) .canvas-view-scroll {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  max-height: none;
+}
+
+body:not([data-panel]) .canvas-toolbar {
+  height: auto !important;
+  min-height: 48px;
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body:not([data-panel]) .breadcrumbs {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+}
+
+body:not([data-panel]) .toolbar-actions {
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 2px;
+}
+
+@media (max-width: 1500px) {
+  body:not([data-panel]) .timeline-footer {
+    gap: 5px;
+  }
+
+  body:not([data-panel]) .timeline-delete-button,
+  body:not([data-panel]) .timeline-preview-button,
+  body:not([data-panel]) .timeline-variant-button {
+    padding-left: 6px;
+    padding-right: 6px;
+    font-size: 11px !important;
+  }
+
+  body:not([data-panel]) .timeline-fps-control > span {
+    display: none;
+  }
+
+  body:not([data-panel]) .timeline-ai-controls {
+    min-width: 220px;
+  }
+
+  body:not([data-panel]) .timeline-ai-controls progress {
+    width: 64px;
+    min-width: 48px;
+    flex: 0 1 64px;
+  }
+
+  body:not([data-panel]) .timeline-footer #timelineTotal {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 1300px) {
+  body:not([data-panel]) .sequence-section {
+    padding-top: 12px;
+    padding-bottom: 8px;
+  }
+
+  body:not([data-panel]) .timeline {
+    min-height: 90px !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  body:not([data-panel]) .timeline-footer {
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: 4px;
+  }
+
+  body:not([data-panel]) .timeline-ai-controls {
+    min-width: 210px;
+    gap: 3px;
+  }
+
+  body:not([data-panel]) .timeline-ai-controls progress {
+    width: 48px;
+    min-width: 40px;
+    flex-basis: 48px;
+  }
+}
+
+/* Detached windows have no top bar, so their content owns the full viewport. */
+body[data-panel] .app-shell,
+body[data-panel] .workspace {
+  height: 100vh;
+  min-height: 0;
+}
+
+body[data-panel] .workspace {
+  overflow: hidden;
+}
+
+body[data-panel="assets"] .sidebar,
+body[data-panel="inspector"] .inspector,
+body[data-panel="workspace"] .main-canvas {
+  height: 100vh;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+body[data-panel="workspace"] .canvas-toolbar {
+  height: auto !important;
+  min-height: 48px;
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+body[data-panel="workspace"] .breadcrumbs {
+  flex: 0 0 auto;
+  align-self: center;
+  white-space: nowrap;
+}
+
+body[data-panel="workspace"] .toolbar-actions {
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 2px;
+}
+
+body[data-panel="sequence"] .timeline-footer {
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 5px;
+  row-gap: 4px;
+}
+
+body[data-panel="sequence"] .timeline-delete-button,
+body[data-panel="sequence"] .timeline-preview-button,
+body[data-panel="sequence"] .timeline-variant-button {
+  padding-left: 6px;
+  padding-right: 6px;
+  font-size: 11px !important;
+}
+
+body[data-panel="sequence"] .timeline-fps-control > span {
+  display: none;
+}
+
+body[data-panel="sequence"] .timeline-ai-controls {
+  min-width: 210px;
+  gap: 3px;
+}
+
+body[data-panel="sequence"] .timeline-ai-controls progress {
+  width: 48px;
+  min-width: 40px;
+  flex: 0 1 48px;
+}
+
+body[data-panel="sequence"] .timeline-footer #timelineTotal {
+  font-size: 10px;
+}
+
+@media (max-height: 420px) {
+  body[data-panel="sequence"] .timeline {
+    min-height: 0 !important;
+    padding-top: 4px !important;
+    padding-bottom: 6px !important;
+  }
+}
+
+/* The main window keeps the frame editor docked below a draggable splitter. */
+body:not([data-panel]) .workspace-splitter {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 var(--workspace-splitter-height, 8px);
+  width: 100%;
+  height: var(--workspace-splitter-height, 8px);
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 78%, var(--line));
+  cursor: row-resize;
+  touch-action: none;
+  outline: none;
+}
+
+body:not([data-panel]) .workspace-splitter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 44px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: .48;
+  transform: translate(-50%, -50%);
+  transition: width .15s ease, opacity .15s ease, background .15s ease;
+}
+
+body:not([data-panel]) .workspace-splitter:hover,
+body:not([data-panel]) .workspace-splitter:focus-visible,
+body:not([data-panel]) .workspace-splitter.is-dragging {
+  border-color: color-mix(in srgb, var(--orange) 65%, var(--line));
+  background: color-mix(in srgb, var(--orange) 18%, var(--panel));
+}
+
+body:not([data-panel]) .workspace-splitter:hover::after,
+body:not([data-panel]) .workspace-splitter:focus-visible::after,
+body:not([data-panel]) .workspace-splitter.is-dragging::after {
+  width: 72px;
+  background: var(--orange);
+  opacity: .9;
+}
+
+body:not([data-panel]) .sequence-section {
+  flex: 0 0 var(--sequence-panel-height, clamp(220px, 34vh, 360px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body:not([data-panel]) .sequence-section > .timeline-header,
+body:not([data-panel]) .sequence-section > .sequence-transport,
+body:not([data-panel]) .sequence-section > .timeline-footer {
+  flex: 0 0 auto;
+}
+
+body:not([data-panel]) .sequence-section > .timeline {
+  flex: 1 1 auto;
+  min-height: 0 !important;
+  overflow: auto;
+}
+
+body:not([data-panel]) .workspace-splitter,
+body:not([data-panel])[data-detached-panels~="workspace"] .workspace-splitter,
+body:not([data-panel])[data-detached-panels~="sequence"] .workspace-splitter {
+  display: block;
+}
+
+body:not([data-panel])[data-detached-panels~="workspace"] .workspace-splitter,
+body:not([data-panel])[data-detached-panels~="sequence"] .workspace-splitter,
+body[data-panel] .workspace-splitter {
+  display: none;
+}
+
+body.is-resizing-workspace,
+body.is-resizing-workspace * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+/* Match native scrollbars to the dark workspace instead of the light OS default. */
+body[data-theme="dark"] {
+  color-scheme: dark;
+  scrollbar-color: #565656 #1a1a1a;
+  scrollbar-width: thin;
+}
+
+body[data-theme="dark"] * {
+  scrollbar-color: #565656 #1a1a1a;
+  scrollbar-width: thin;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar-track {
+  background: #1a1a1a;
+  border: 1px solid #292929;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar-thumb {
+  min-height: 34px;
+  border: 2px solid #1a1a1a;
+  border-radius: 6px;
+  background: #565656;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: #e58a3a;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar-thumb:active {
+  background: #f0a34f;
+}
+
+body[data-theme="dark"] *::-webkit-scrollbar-corner {
+  background: #1a1a1a;
+}

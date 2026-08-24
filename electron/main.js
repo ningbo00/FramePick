@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -29,13 +29,30 @@ let logPath = null;
 let logDirectory = null;
 let pluginManager = null;
 
+function projectOwnerWindow(window) {
+  if (!window || window.isDestroyed()) return null;
+  const panelEntry = [...panelWindows.values()].find((entry) => entry.window === window);
+  return panelEntry ? projectWindows.get(panelEntry.ownerId) || mainWindow : window;
+}
+
 function ownerWindowForEvent(event) {
-  const senderWindow = BrowserWindow.fromWebContents(event?.sender);
-  const panelEntry = senderWindow
-    ? [...panelWindows.values()].find((entry) => entry.window === senderWindow)
-    : null;
-  if (panelEntry) return projectWindows.get(panelEntry.ownerId) || mainWindow;
-  return senderWindow || mainWindow;
+  return projectOwnerWindow(BrowserWindow.fromWebContents(event?.sender)) || mainWindow;
+}
+
+function focusedProjectWindow() {
+  return projectOwnerWindow(BrowserWindow.getFocusedWindow()) || mainWindow;
+}
+
+function sendMenuCommand(command) {
+  const target = focusedProjectWindow();
+  if (!target || target.isDestroyed()) return false;
+  target.webContents.send('menu:command', command);
+  return true;
+}
+
+function customTitlebarOptions() {
+  if (process.platform !== 'win32') return {};
+  return { titleBarStyle: 'hidden' };
 }
 
 function ownerIdForWindow(window) {
@@ -330,6 +347,59 @@ async function saveSpritesheet(payload, ownerWindow = mainWindow) {
   return { ok: true, filePath: result.filePath };
 }
 
+function buildApplicationMenu() {
+  const template = [
+    {
+      label: '文件',
+      submenu: [
+        { label: '新建项目', accelerator: 'CmdOrCtrl+N', click: () => sendMenuCommand('new-project') },
+        { label: '新窗口', accelerator: 'CmdOrCtrl+Shift+N', click: () => sendMenuCommand('new-project-window') },
+        { label: '打开项目', accelerator: 'CmdOrCtrl+O', click: () => sendMenuCommand('open-project') },
+        { label: '打开项目位置', click: () => sendMenuCommand('open-project-location') },
+        { type: 'separator' },
+        { label: '保存', accelerator: 'CmdOrCtrl+S', click: () => sendMenuCommand('save-project') },
+        { label: '另存为', accelerator: 'CmdOrCtrl+Shift+S', click: () => sendMenuCommand('save-project-as') },
+        { type: 'separator' },
+        {
+          label: '导入/导出',
+          submenu: [
+            { label: '导入视频或图片', click: () => sendMenuCommand('import-media') },
+            { label: '导入序列文件夹', click: () => sendMenuCommand('import-sequence') },
+            { label: '导出', click: () => sendMenuCommand('media-export') }
+          ]
+        },
+        { type: 'separator' },
+        process.platform === 'darwin' ? { role: 'close' } : { role: 'quit', label: '退出 FramePick' }
+      ]
+    },
+    {
+      label: '编辑',
+      submenu: [
+        { role: 'undo', label: '撤销' },
+        { role: 'redo', label: '重做' },
+        { type: 'separator' },
+        { role: 'selectAll', label: '全选' }
+      ]
+    },
+    {
+      label: '视图',
+      submenu: [
+        { label: '设置', click: () => sendMenuCommand('settings') },
+        { type: 'separator' },
+        { role: 'toggleDevTools', label: '开发者工具' }
+      ]
+    },
+    {
+      label: '窗口',
+      submenu: [
+        { role: 'minimize', label: '最小化' },
+        { role: 'togglefullscreen', label: '切换全屏' }
+      ]
+    }
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 function registerIpc() {
   ipcMain.handle('window:open-project', async () => {
     const window = await createProjectWindow();
@@ -338,6 +408,31 @@ function registerIpc() {
   ipcMain.handle('window:set-title', (event, title) => {
     const ownerWindow = ownerWindowForEvent(event);
     if (ownerWindow && !ownerWindow.isDestroyed()) ownerWindow.setTitle(String(title || 'FramePick'));
+    return true;
+  });
+  ipcMain.handle('window:set-titlebar-theme', (event, theme) => {
+    // Kept for renderer compatibility. The Windows title bar is fully custom,
+    // so there is no native title-bar overlay to recolor.
+    void event;
+    void theme;
+    return true;
+  });
+  ipcMain.handle('window:minimize', (event) => {
+    const ownerWindow = ownerWindowForEvent(event);
+    if (ownerWindow && !ownerWindow.isDestroyed()) ownerWindow.minimize();
+    return true;
+  });
+  ipcMain.handle('window:toggle-maximize', (event) => {
+    const ownerWindow = ownerWindowForEvent(event);
+    if (ownerWindow && !ownerWindow.isDestroyed()) {
+      if (ownerWindow.isMaximized()) ownerWindow.unmaximize();
+      else ownerWindow.maximize();
+    }
+    return true;
+  });
+  ipcMain.handle('window:close', (event) => {
+    const ownerWindow = ownerWindowForEvent(event);
+    if (ownerWindow && !ownerWindow.isDestroyed()) ownerWindow.close();
     return true;
   });
   ipcMain.handle('window:confirm-close', async (event) => {
@@ -518,6 +613,8 @@ async function openPanelWindow(panel, ownerWindow = mainWindow) {
 
 async function createProjectWindow() {
   const projectWindow = new BrowserWindow({
+    ...customTitlebarOptions(),
+    title: 'FramePick · 未命名项目',
     width: 1440,
     height: 960,
     minWidth: 980,
@@ -575,6 +672,7 @@ if (!gotLock) {
     initializeLogging();
     pluginManager = createPluginManager(paths.appRoot, { paths, log });
     registerIpc();
+    buildApplicationMenu();
     return createProjectWindow();
   }).catch((error) => {
     log('ERROR', 'FramePick 启动失败', error);

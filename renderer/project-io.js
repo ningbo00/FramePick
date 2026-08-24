@@ -10,6 +10,30 @@
     return name;
   }
 
+  function normalizeMediaReference(value) {
+    if (!value || typeof value !== 'object') return null;
+    const kind = value.kind === 'image' ? 'image' : value.kind === 'video' ? 'video' : '';
+    const name = String(value.name || '').trim();
+    if (!kind || !name) return null;
+    return {
+      kind,
+      name,
+      path: String(value.path || '').trim(),
+      duration: Math.max(0, Number(value.duration) || 0),
+      width: Math.max(1, Math.round(Number(value.width) || 1)),
+      height: Math.max(1, Math.round(Number(value.height) || 1)),
+      thumbnail: typeof value.thumbnail === 'string' ? value.thumbnail : ''
+    };
+  }
+
+  function normalizeMedia(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    const clips = (Array.isArray(source.clips) ? source.clips : []).map(normalizeMediaReference).filter(Boolean);
+    const requestedActive = Number(source.activeClip);
+    const activeClip = Number.isInteger(requestedActive) && requestedActive >= 0 && requestedActive < clips.length ? requestedActive : -1;
+    return { clips, activeClip };
+  }
+
   function validateTransform(value, label) {
     if (!value || typeof value !== 'object') throw new Error(`${label} 变换无效`);
     for (const key of ['x', 'y', 'scale', 'rotate']) if (!Number.isFinite(Number(value[key]))) throw new Error(`${label} 变换无效`);
@@ -31,10 +55,12 @@
     });
     const sequenceAnimation = FramePickSequenceAnimation.create(documentData.sequenceAnimation);
     const guides = normalizeGuides(documentData.guides, documentData.canvas.width, documentData.canvas.height);
-    return { name, frames: documentData.frames, sequenceAnimation, guides, guidesVisible: documentData.guidesVisible !== false };
+    const media = normalizeMedia(documentData.media);
+    return { name, frames: documentData.frames, sequenceAnimation, guides, guidesVisible: documentData.guidesVisible !== false, media };
   }
 
-  function buildDocument({ projectName: name, canvasWidth, canvasHeight, fps, loop, sequenceVariant, sequenceAnimation, guides = [], guidesVisible = true, frames, assetPathForFrame: assetPath }) {
+  function buildDocument({ projectName: name, canvasWidth, canvasHeight, fps, loop, sequenceVariant, sequenceAnimation, guides = [], guidesVisible = true, frames, assetPathForFrame: assetPath, media = {} }) {
+    const normalizedMedia = normalizeMedia(media);
     return {
       format: 'framepick-project',
       schemaVersion: 1,
@@ -45,10 +71,11 @@
       sequenceAnimation: FramePickSequenceAnimation.create(sequenceAnimation),
       guides: normalizeGuides(guides, canvasWidth, canvasHeight),
       guidesVisible: guidesVisible !== false,
+      media: normalizedMedia,
       sequenceSnapshot: { manifestPath: 'sequence/sequence.json' },
       frames: frames.map((frame, index) => FrameModel.toProjectEntry(frame, index, assetPath))
     };
   }
 
-  global.FramePickProjectIo = { assetPathForFrame, projectName, validateTransform, validateDocument, buildDocument };
+  global.FramePickProjectIo = { assetPathForFrame, projectName, normalizeMedia, validateTransform, validateDocument, buildDocument };
 })(window);
