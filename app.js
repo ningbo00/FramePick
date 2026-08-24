@@ -8,6 +8,7 @@ const toast = $('#toast');
 const sidebar = $('.sidebar');
 const previewOverlay = $('#sequencePreviewOverlay');
 const pixelEditOverlay = $('#pixelEditOverlay');
+const guideOverlay = $('#guideOverlay');
 const onionPrevOverlay = $('#onionPrevOverlay');
 const onionNextOverlay = $('#onionNextOverlay');
 const videoPanel = $('.video-panel');
@@ -53,6 +54,10 @@ let transformMode = 'move';
 let pixelEditMode = '';
 let pixelSelection = null;
 let pixelEditDrag = null;
+let guides = [];
+let guidesVisible = true;
+let guideCreateMode = '';
+let guideDrag = null;
 let workspaceScale = Number($('#previewSize')?.value) || 55;
 let timelineScale = Number($('#timelineSize')?.value) || 78;
 let canvasWidth = initialState.canvasWidth;
@@ -98,7 +103,9 @@ function panelStateSnapshot() {
     previewMotionElapsed,
     previewIndex,
     projectFileName,
-    loop: Boolean($('#loopToggle')?.classList.contains('active'))
+    loop: Boolean($('#loopToggle')?.classList.contains('active')),
+    guides: guides.map((guide) => ({ ...guide })),
+    guidesVisible
   };
 }
 
@@ -132,6 +139,8 @@ function applyPanelState(state) {
     selectedIndices = new Set((Array.isArray(state.selectedIndices) ? state.selectedIndices : [selected]).filter((index) => Number.isInteger(index) && index >= 0 && index < frames.length));
     if (selected >= 0 && !selectedIndices.size) selectedIndices.add(selected);
     selectionAnchor = Number.isInteger(state.selectionAnchor) ? state.selectionAnchor : selected;
+    guides = FramePickGuides.normalizeAll(state.guides, 8192, 8192);
+    guidesVisible = state.guidesVisible !== false;
     fps = Math.max(1, Math.min(60, Number(state.fps) || 12));
     sequenceVariant = state.sequenceVariant === 'ai' ? 'ai' : 'original';
     sequenceAnimation = FramePickSequenceAnimation.create(state.sequenceAnimation);
@@ -147,6 +156,7 @@ function applyPanelState(state) {
     previewMotionElapsed = incomingPreviewMotionElapsed;
     previewIndex = incomingPreviewIndex;
     if (Number(state.canvasWidth) > 0 && Number(state.canvasHeight) > 0) updateCanvasResolution(state.canvasWidth, state.canvasHeight, false);
+    guides = FramePickGuides.normalizeAll(guides, canvasWidth, canvasHeight);
     $('#loopToggle')?.classList.toggle('active', state.loop !== false);
     $('#loopToggle')?.setAttribute('aria-pressed', String(state.loop !== false));
     $('#fpsValue').textContent = fps;
@@ -182,6 +192,7 @@ function applyPanelState(state) {
     }
     updateProjectIdentity(projectFileName, false);
     updatePixelEditControls();
+    renderGuides();
   } finally {
     panelSyncApplying = false;
   }
@@ -233,12 +244,13 @@ function updateTimelineScale(value) {
 }
 
 function historyDocument() {
-  return JSON.stringify({ fps, sequenceVariant, sequenceAnimation, canvasWidth, canvasHeight, loop: Boolean($('#loopToggle')?.classList.contains('active')), frames });
+  return JSON.stringify({ fps, sequenceVariant, sequenceAnimation, canvasWidth, canvasHeight, loop: Boolean($('#loopToggle')?.classList.contains('active')), frames, guides, guidesVisible });
 }
 
 function updateCanvasResolution(width, height, persist = true) {
   canvasWidth = Math.max(1, Math.min(8192, Number(width) || 1920));
   canvasHeight = Math.max(1, Math.min(8192, Number(height) || 1080));
+  guides = FramePickGuides.normalizeAll(guides, canvasWidth, canvasHeight);
   $('#canvasWidth').value = canvasWidth;
   $('#canvasHeight').value = canvasHeight;
   const preset = $('#canvasPreset');
@@ -248,6 +260,7 @@ function updateCanvasResolution(width, height, persist = true) {
   }
   if (exportFollowsCanvas || !exportResolutionExplicit) updateExportResolution(canvasWidth, canvasHeight, true);
   updateCanvasDisplaySize();
+  renderGuides();
   if (frames.length) {
     renderTimeline({ refreshThumbnails: true });
     if (displayMode === 'sequence' && selected >= 0 && frames[selected]) {
@@ -561,6 +574,111 @@ async function eraseSelectedPixels() {
   }
 }
 
+function guideLimit(orientation) {
+  return orientation === 'vertical' ? canvasWidth : canvasHeight;
+}
+
+function guidePointFromEvent(event) {
+  const bounds = guideOverlay.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(canvasWidth, ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * canvasWidth)),
+    y: Math.max(0, Math.min(canvasHeight, ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * canvasHeight))
+  };
+}
+
+function positionGuideLine(element, guide) {
+  if (guide.orientation === 'vertical') element.style.left = `${(guide.position / Math.max(1, canvasWidth)) * 100}%`;
+  else element.style.top = `${(guide.position / Math.max(1, canvasHeight)) * 100}%`;
+}
+
+function removeGuide(id) {
+  const index = guides.findIndex((guide) => guide.id === id);
+  if (index < 0) return;
+  guides.splice(index, 1);
+  renderGuides();
+  markProjectDirty();
+  showToast('已删除辅助线');
+}
+
+function startGuideDrag(event, guide, element) {
+  event.preventDefault();
+  event.stopPropagation();
+  guideDrag = { pointerId: event.pointerId, guide, element };
+  element.setPointerCapture(event.pointerId);
+}
+
+function moveGuideDrag(event) {
+  if (!guideDrag || guideDrag.pointerId !== event.pointerId) return;
+  const point = guidePointFromEvent(event);
+  guideDrag.guide.position = Math.max(0, Math.min(guideLimit(guideDrag.guide.orientation), guideDrag.guide.orientation === 'vertical' ? point.x : point.y));
+  positionGuideLine(guideDrag.element, guideDrag.guide);
+}
+
+function finishGuideDrag(event) {
+  if (!guideDrag || guideDrag.pointerId !== event.pointerId) return;
+  try { guideDrag.element.releasePointerCapture(event.pointerId); } catch { /* Pointer capture may already be released. */ }
+  guideDrag = null;
+  markProjectDirty();
+  schedulePanelStateSync();
+}
+
+function renderGuides() {
+  if (!guideOverlay) return;
+  guideOverlay.innerHTML = '';
+  guideOverlay.classList.toggle('visible', guidesVisible && displayMode === 'sequence' && videoPanel.classList.contains('sequence-mode'));
+  guideOverlay.classList.toggle('creating', Boolean(guideCreateMode));
+  $('#addVerticalGuideBtn')?.classList.toggle('active', guideCreateMode === 'vertical');
+  $('#addHorizontalGuideBtn')?.classList.toggle('active', guideCreateMode === 'horizontal');
+  const toggle = $('#toggleGuidesBtn');
+  if (toggle) {
+    toggle.classList.toggle('active', guidesVisible);
+    toggle.textContent = guidesVisible ? '辅助线' : '显示线';
+    toggle.setAttribute('aria-pressed', String(guidesVisible));
+  }
+  guides.forEach((guide) => {
+    const element = document.createElement('div');
+    element.className = `guide-line guide-${guide.orientation}`;
+    element.dataset.guideId = guide.id;
+    element.title = `${guide.orientation === 'vertical' ? '竖向' : '横向'}辅助线，拖动调整；双击删除`;
+    positionGuideLine(element, guide);
+    element.addEventListener('pointerdown', (event) => startGuideDrag(event, guide, element));
+    element.addEventListener('pointermove', moveGuideDrag);
+    element.addEventListener('pointerup', finishGuideDrag);
+    element.addEventListener('pointercancel', finishGuideDrag);
+    element.addEventListener('dblclick', (event) => { event.preventDefault(); removeGuide(guide.id); });
+    element.addEventListener('contextmenu', (event) => { event.preventDefault(); removeGuide(guide.id); });
+    guideOverlay.append(element);
+  });
+}
+
+function setGuideCreateMode(mode) {
+  if (!['vertical', 'horizontal'].includes(mode)) {
+    guideCreateMode = '';
+    renderGuides();
+    return;
+  }
+  if (displayMode !== 'sequence' || !frames.length) return showToast('请先进入序列编辑后添加辅助线');
+  guideCreateMode = guideCreateMode === mode ? '' : mode;
+  renderGuides();
+}
+
+function addGuideAtEvent(event) {
+  if (!guideCreateMode || displayMode !== 'sequence') return;
+  const point = guidePointFromEvent(event);
+  const guide = FramePickGuides.create(guideCreateMode, guideCreateMode === 'vertical' ? point.x : point.y, canvasWidth, canvasHeight);
+  if (!guide) return;
+  guides.push(guide);
+  renderGuides();
+  markProjectDirty();
+  schedulePanelStateSync();
+}
+
+guideOverlay.addEventListener('pointerdown', (event) => {
+  if (!guideCreateMode || event.target.closest('.guide-line')) return;
+  event.preventDefault();
+  addGuideAtEvent(event);
+});
+
 function sequenceTransformAt(timeMs = 0) {
   return FramePickSequenceAnimation.evaluate(sequenceAnimation, timeMs);
 }
@@ -696,6 +814,7 @@ function setSequenceDisplay(active) {
   if (button) button.innerHTML = active ? '▣ <span>显示素材视频</span>' : '✦ <span>编辑序列</span>';
   updateCanvasDisplaySize();
   updatePixelEditControls();
+  renderGuides();
   if (!active) updateOnionSkin();
 }
 
@@ -1148,6 +1267,10 @@ function newProject() {
   frames = [];
   pixelEditMode = '';
   clearPixelSelection();
+  guides = [];
+  guidesVisible = true;
+  guideCreateMode = '';
+  guideDrag = null;
   selected = -1;
   selectedIndices = new Set();
   selectionAnchor = -1;
@@ -1174,6 +1297,7 @@ function newProject() {
   renderTimeline();
   updateInspector();
   updateMotionEditor();
+  renderGuides();
   initializeHistory();
   updateProjectIdentity(projectFileName, false);
   try {
@@ -2083,6 +2207,11 @@ document.addEventListener('keydown', (event) => {
   const editingField = target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
   const key = event.key.toLowerCase();
   const sequenceTarget = panelMode === 'sequence' || displayMode === 'sequence' || Boolean(target?.closest?.('#timeline, .sequence-section'));
+  if (!editingField && event.key === 'Escape' && guideCreateMode) {
+    event.preventDefault();
+    setGuideCreateMode('');
+    return;
+  }
   if (!editingField && (event.ctrlKey || event.metaKey) && key === 'a' && sequenceTarget) {
     event.preventDefault();
     selectAllFrames();
@@ -2487,13 +2616,17 @@ function assetPathForFrame(index, variant) {
 }
 
 function buildProjectDocument() {
-  return FramePickProjectIo.buildDocument({ projectName: projectNameWithoutExtension(), canvasWidth, canvasHeight, fps, loop: Boolean($('#loopToggle')?.classList.contains('active')), sequenceVariant, sequenceAnimation, frames, assetPathForFrame });
+  return FramePickProjectIo.buildDocument({ projectName: projectNameWithoutExtension(), canvasWidth, canvasHeight, fps, loop: Boolean($('#loopToggle')?.classList.contains('active')), sequenceVariant, sequenceAnimation, guides, guidesVisible, frames, assetPathForFrame });
 }
 
 function restoreRuntimeState(state) {
   frames = Array.isArray(state.frames) ? state.frames.map((frame) => FrameModel.create(frame)) : [];
   pixelEditMode = '';
   clearPixelSelection();
+  guides = FramePickGuides.normalizeAll(state.guides, Number(state.canvasWidth) || canvasWidth, Number(state.canvasHeight) || canvasHeight);
+  guidesVisible = state.guidesVisible !== false;
+  guideCreateMode = '';
+  guideDrag = null;
   fps = Math.max(1, Math.min(60, Number(state.fps) || 12));
   sequenceAnimation = FramePickSequenceAnimation.create(state.sequenceAnimation);
   selectedMotionKeyframeId = sequenceAnimation.keyframes[0]?.id || '';
@@ -2515,6 +2648,7 @@ function restoreRuntimeState(state) {
   updateInspector();
   if (selected >= 0) renderSequenceInMainWindow();
   updateMotionEditor();
+  renderGuides();
   if (!historyApplying) initializeHistory();
 }
 
@@ -2540,7 +2674,7 @@ async function restoreProjectDocument(documentData, projectPath) {
     restored.push(FrameModel.fromProjectEntry(entry, { original: original.data, ai: aiImage }, documentData.canvas));
   }
   projectFileName = `${projectName}.fpproj`;
-  restoreRuntimeState({ frames: restored, fps: Number(documentData.playback.fps), canvasWidth: documentData.canvas.width, canvasHeight: documentData.canvas.height, sequenceVariant: documentData.sequenceVariant, sequenceAnimation: validated.sequenceAnimation, loop: documentData.playback.loop });
+  restoreRuntimeState({ frames: restored, fps: Number(documentData.playback.fps), canvasWidth: documentData.canvas.width, canvasHeight: documentData.canvas.height, sequenceVariant: documentData.sequenceVariant, sequenceAnimation: validated.sequenceAnimation, guides: validated.guides, guidesVisible: validated.guidesVisible, loop: documentData.playback.loop });
 }
 
 async function buildProjectPayload() {
@@ -3138,6 +3272,22 @@ $('#pixelBrushSize').oninput = (event) => {
     pixelSelection.size = size;
     drawPixelSelection();
   }
+};
+$('#addVerticalGuideBtn').onclick = () => setGuideCreateMode('vertical');
+$('#addHorizontalGuideBtn').onclick = () => setGuideCreateMode('horizontal');
+$('#toggleGuidesBtn').onclick = () => {
+  guidesVisible = !guidesVisible;
+  guideCreateMode = '';
+  renderGuides();
+  markProjectDirty();
+};
+$('#clearGuidesBtn').onclick = () => {
+  if (!guides.length) return;
+  guides = [];
+  guideCreateMode = '';
+  renderGuides();
+  markProjectDirty();
+  showToast('已清除全部辅助线');
 };
 $('#assetsCollapseBtn').onclick = () => setPanelCollapsed('assets', true);
 $('#assetsRestoreTab').onclick = () => setPanelCollapsed('assets', false);

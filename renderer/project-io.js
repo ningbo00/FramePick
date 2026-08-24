@@ -1,4 +1,5 @@
 (function exposeFramePickProjectIo(global) {
+  const normalizeGuides = (...args) => global.FramePickGuides?.normalizeAll?.(...args) || [];
   function assetPathForFrame(index, variant) {
     return `frames/frame_${String(index + 1).padStart(4, '0')}_${variant}.png`;
   }
@@ -29,10 +30,11 @@
       ids.add(entry.id);
     });
     const sequenceAnimation = FramePickSequenceAnimation.create(documentData.sequenceAnimation);
-    return { name, frames: documentData.frames, sequenceAnimation };
+    const guides = normalizeGuides(documentData.guides, documentData.canvas.width, documentData.canvas.height);
+    return { name, frames: documentData.frames, sequenceAnimation, guides, guidesVisible: documentData.guidesVisible !== false };
   }
 
-  function buildDocument({ projectName: name, canvasWidth, canvasHeight, fps, loop, sequenceVariant, sequenceAnimation, frames, assetPathForFrame: assetPath }) {
+  function buildDocument({ projectName: name, canvasWidth, canvasHeight, fps, loop, sequenceVariant, sequenceAnimation, guides = [], guidesVisible = true, frames, assetPathForFrame: assetPath }) {
     return {
       format: 'framepick-project',
       schemaVersion: 1,
@@ -41,6 +43,8 @@
       playback: { fps, loop },
       sequenceVariant,
       sequenceAnimation: FramePickSequenceAnimation.create(sequenceAnimation),
+      guides: normalizeGuides(guides, canvasWidth, canvasHeight),
+      guidesVisible: guidesVisible !== false,
       sequenceSnapshot: { manifestPath: 'sequence/sequence.json' },
       frames: frames.map((frame, index) => FrameModel.toProjectEntry(frame, index, assetPath))
     };
