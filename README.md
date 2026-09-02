@@ -53,3 +53,10 @@ npm start
 - API Key 保存在 Windows 用户目录，不会提交到 GitHub。
 
 更多细节见 `README-DESKTOP.md` 与 `docs/` 目录。
+
+## 许可与版权
+
+本仓库为**公开可见但非开源**项目，版权所有（All Rights Reserved），详见 `LICENSE`：
+
+- 允许查看代码、个人学习参考；
+- 未经许可不得复制、修改、再分发或商业使用。
